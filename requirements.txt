@@ -1,0 +1,6 @@
+mcp
+requests
+urllib3
+python-dotenv
+streamlit
+pandas

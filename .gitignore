@@ -1,0 +1,28 @@
+# Virtual environment
+venv/
+.venv/
+
+# Environment secrets
+.env
+
+# Database (regenerated at runtime)
+cases.db
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Streamlit
+.streamlit/
+
+# Gemini
+.gemini/
