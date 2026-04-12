@@ -1,0 +1,3 @@
+_time,src_ip,user,url,action
+2026-04-12T10:45:00,192.168.1.50,jsmith@yourcompany.com,http://update-microsoft-support.com/login,ALLOWED
+2026-04-12T11:10:00,192.168.1.51,tstark@yourcompany.com,http://update-microsoft-support.com/login,ALLOWED

