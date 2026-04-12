@@ -32,7 +32,7 @@ Every investigation MUST follow this exact sequence. Do NOT skip steps.
 ### Step 4 — Deep Endpoint Forensics (EDR/Sysmon)
 - For EVERY IP address that clicked a malicious URL, run `query_endpoint_activity`.
 - Analyze the process tree for each endpoint. Look for:
-  - **Suspicious child processes**: Office apps spawning `cmd.exe`, `powershell.exe`, `wscript.exe`, `mshta.exe`
+  - **Suspicious child processes**: Office apps spawning `cmd.exe`, `powershell.exe`, `wscript.exe`, `mshta.exe` and more
   - **File downloads**: `Invoke-WebRequest`, `certutil`, `bitsadmin`, `curl` in command lines
   - **Payload execution**: New executables running from `C:\Temp\`, `%APPDATA%`, `%LOCALAPPDATA%`
   - **Persistence**: `schtasks`, `reg add`, references to `\Run\` registry keys
