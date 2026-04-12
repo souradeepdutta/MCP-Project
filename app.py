@@ -3,6 +3,7 @@ import sqlite3
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
+import altair as alt
 
 # ─────────────────────────────────────────────────────────────
 # Page Configuration
@@ -189,7 +190,7 @@ st.markdown("""
     footer {visibility: hidden;}
     header {visibility: hidden;}
 
-    /* ── Tab styling ── */
+    /* ── Tab styling & Native Markdown ── */
     .stTabs [data-baseweb="tab-list"] {
         gap: 2px;
     }
@@ -197,6 +198,39 @@ st.markdown("""
         border-radius: 8px 8px 0 0;
         padding: 10px 24px;
         font-weight: 600;
+        background: rgba(30, 41, 59, 0.4);
+    }
+    
+    /* Auto-style any native st.markdown text inside the tabs to match the case-card look */
+    .stTabs [data-testid="stMarkdownContainer"] p,
+    .stTabs [data-testid="stMarkdownContainer"] li {
+        color: #cbd5e1 !important;
+        line-height: 1.8 !important;
+        font-size: 0.98rem !important;
+    }
+    .stTabs [data-testid="stMarkdownContainer"] strong {
+        color: #f8fafc !important;
+        font-weight: 700 !important;
+        border-bottom: 1px dotted rgba(248, 250, 252, 0.5);
+    }
+    .stTabs [data-testid="stMarkdownContainer"] h4 {
+        font-size: 1.05rem;
+        font-weight: 700;
+        color: #818cf8;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        margin-top: 10px;
+        margin-bottom: 16px;
+        padding-bottom: 8px;
+        border-bottom: 2px solid rgba(99, 102, 241, 0.2);
+    }
+    /* Add a subtle visual wrapper around the raw tab content using CSS instead of HTML injections */
+    .stTabs [data-testid="stVerticalBlock"] {
+        background: linear-gradient(135deg, rgba(15, 23, 42, 0.6) 0%, rgba(30, 41, 59, 0.4) 100%);
+        border: 1px solid rgba(99, 102, 241, 0.15);
+        border-radius: 0 8px 8px 8px;
+        padding: 28px;
+        margin-bottom: 16px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -251,6 +285,10 @@ def classify_verdict(verdict: str) -> str:
 
 df = load_cases()
 
+# Process severities
+if not df.empty:
+    df['severity'] = df['verdict'].apply(classify_verdict)
+
 # ─────────────────────────────────────────────────────────────
 # Sidebar
 # ─────────────────────────────────────────────────────────────
@@ -262,18 +300,33 @@ with st.sidebar:
     if df.empty:
         st.info("No cases in the database.")
         selected_case_id = None
+        filtered_df = pd.DataFrame()
     else:
-        st.markdown(f"**{len(df)}** investigation(s) on file")
+        st.markdown(f"**{len(df)}** total investigation(s) on file")
         st.markdown("")
 
-        # Case selector
-        df['display_name'] = df['case_id'] + "  ·  " + df['message_id']
-        selected_display = st.selectbox(
-            "📂 Select Investigation",
-            df['display_name'].tolist(),
-            label_visibility="visible"
+        # Filter
+        selected_severities = st.multiselect(
+            "Filter by Severity",
+            options=["critical", "warning", "safe"],
+            default=["critical", "warning", "safe"],
+            format_func=lambda x: x.capitalize()
         )
-        selected_case_id = selected_display.split("  ·  ")[0].strip()
+        
+        filtered_df = df[df['severity'].isin(selected_severities)] if selected_severities else df
+
+        # Case selector
+        if filtered_df.empty:
+            st.warning("No cases match the selected filters.")
+            selected_case_id = None
+        else:
+            filtered_df['display_name'] = filtered_df['case_id'] + "  ·  " + filtered_df['message_id']
+            selected_display = st.selectbox(
+                "📂 Select Investigation",
+                filtered_df['display_name'].tolist(),
+                label_visibility="visible"
+            )
+            selected_case_id = selected_display.split("  ·  ")[0].strip()
 
         st.markdown("---")
 
@@ -374,11 +427,53 @@ else:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
+    # ── Charts Row ──
+    chart_col1, chart_col2 = st.columns([1, 2])
+    
+    with chart_col1:
+        st.markdown('<div class="section-header">Severity Distribution</div>', unsafe_allow_html=True)
+        severity_counts = df['severity'].value_counts().reset_index()
+        severity_counts.columns = ['Severity', 'Count']
+        
+        pie_chart = alt.Chart(severity_counts).mark_arc(innerRadius=40).encode(
+            theta=alt.Theta(field="Count", type="quantitative"),
+            color=alt.Color(field="Severity", type="nominal",
+                scale=alt.Scale(domain=['critical', 'warning', 'safe'],
+                                range=['#ef4444', '#f59e0b', '#10b981']),
+                legend=alt.Legend(orient='bottom', title=None)),
+            tooltip=['Severity', 'Count']
+        ).properties(height=250, background='transparent')
+        
+        st.altair_chart(pie_chart, use_container_width=True)
+
+    with chart_col2:
+        st.markdown('<div class="section-header">Investigation Timeline</div>', unsafe_allow_html=True)
+        timeline_df = df.copy()
+        try:
+            timeline_df['date'] = pd.to_datetime(timeline_df['timestamp']).dt.date
+            daily_counts = timeline_df.groupby(['date', 'severity']).size().reset_index(name='count')
+            
+            bar_chart = alt.Chart(daily_counts).mark_bar().encode(
+                x=alt.X('date:T', title='', axis=alt.Axis(format='%b %d', labelColor='#94a3b8')),
+                y=alt.Y('count:Q', title='Cases', axis=alt.Axis(labelColor='#94a3b8', titleColor='#94a3b8')),
+                color=alt.Color('severity:N', 
+                    scale=alt.Scale(domain=['critical', 'warning', 'safe'], 
+                                    range=['#ef4444', '#f59e0b', '#10b981']),
+                    legend=None),
+                tooltip=['date:T', 'severity:N', 'count:Q']
+            ).properties(height=250, background='transparent')
+            
+            st.altair_chart(bar_chart, use_container_width=True)
+        except Exception as e:
+            st.info("Not enough temporal data for timeline.")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
     # ── Case Detail View ──
     if selected_case_id:
         details = get_case_details(selected_case_id)
         if details:
-            case_id, timestamp, msg_id, verdict, summary, actions = details
+            case_id, timestamp, msg_id, verdict, summary, tech_details, actions = details
             severity = classify_verdict(verdict)
 
             # Verdict badge
@@ -410,35 +505,29 @@ else:
             """, unsafe_allow_html=True)
 
             # Tabs for Summary and Actions
-            tab_summary, tab_actions, tab_raw = st.tabs(["📄 Investigation Summary", "⚡ Recommended Actions", "🔍 Raw Data"])
+            tab_summary, tab_tech, tab_actions, tab_raw = st.tabs(["📄 Investigation Summary", "🔬 Technical Details", "⚡ Recommended Actions", "🔍 Raw Data"])
 
             with tab_summary:
-                st.markdown(f"""
-                <div class="case-card">
-                    <div class="section-header">Investigation Summary</div>
-                    <div style="color: #cbd5e1; line-height: 1.8; font-size: 0.95rem;">
-                        {summary.replace(chr(10), '<br>')}
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+                st.markdown("#### Investigation Summary")
+                # Direct markdown rendering allows LLM formatting (bold, lists) to shine!
+                st.markdown(summary)
+
+            with tab_tech:
+                st.markdown("#### Detailed Technical Analysis")
+                st.markdown(tech_details)
 
             with tab_actions:
-                st.markdown(f"""
-                <div class="case-card">
-                    <div class="section-header">Recommended Response Actions</div>
-                    <div style="color: #cbd5e1; line-height: 1.8; font-size: 0.95rem;">
-                        {actions.replace(chr(10), '<br>')}
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+                st.markdown("#### Recommended Response Actions")
+                st.markdown(actions)
 
             with tab_raw:
-                st.markdown('<div class="section-header">Raw Case Record</div>', unsafe_allow_html=True)
+                st.markdown("#### Raw Case Record")
                 st.json({
                     "case_id": case_id,
                     "timestamp": timestamp,
                     "message_id": msg_id,
                     "verdict": verdict,
                     "summary": summary,
+                    "technical_details": tech_details,
                     "recommended_actions": actions
                 })

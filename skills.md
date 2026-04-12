@@ -47,7 +47,9 @@ Every investigation MUST follow this exact sequence. Do NOT skip steps.
   - `CONFIRMED PHISHING` — Malicious email confirmed, but no user interaction detected.
   - `CONFIRMED PHISHING — USER CLICKED` — User(s) clicked but no endpoint compromise observed.
   - `CONFIRMED PHISHING — ACTIVE COMPROMISE` — Post-click malicious activity confirmed on endpoint(s).
-- Run `save_investigation_report` with the verdict, a detailed summary, and recommended actions.
+- Run `save_investigation_report` with your findings.
+  - **`summary`**: A concise, non-technical executive summary of the alert, what happened, and the business impact.
+  - **`technical_details`**: A comprehensive, deeply technical breakdown of the entire attack chain. Include all IOCs, IPs, usernames, extracted URLs, endpoints, processes, and command-line execution traces.
 
 ---
 
@@ -85,7 +87,21 @@ Structure recommended actions in three tiers:
 
 ## SOP 4: Report Quality Standards
 
-- The summary must be readable by a non-technical stakeholder in the first paragraph, with technical details following.
+🚨 **CRITICAL FORMATTING RULES** 🚨
+You absolutely MUST format your final summary, technical details, and recommended actions perfectly:
+- **Never produce a wall of text.** Break details down into short, readable paragraphs using multiple line breaks (`\n\n`).
+- **Use Bold Text (`**text**`)** to highlight IPs, emails, filenames, and verdicts.
+- **Use Bullet Points (`- item`)** strictly for listing multiple users, IPs, processes, or any recommended action items.
+- If formatting "IMMEDIATE", "SHORT-TERM", "LONG-TERM", they must be separated as distinct list sections with line breaks in between.
+
+🚨 **CRITICAL TOKEN OPTIMIZATION RULE (DO NOT PRINT THE REPORT)** 🚨
+- DO NOT print the detailed report or technical data back to the user in the chat interface. It consumes too many tokens.
+- Push the entire formatted markdown report directly into the database using the `save_investigation_report` tool.
+- In the chat interface, simply reply with a 1-sentence confirmation: "Investigation complete. Case [ID] has been pushed to the SOC dashboard."
+
+- The summary must be readable by a non-technical stakeholder in the first paragraph.
+- Always include the case ID, message ID, and timestamp in the technical details.
+- If the investigation reveals a known threat actor (from TI), name them and include their TTPs in the technical details.
 - Use bullet points for action items.
 - Always include the case ID, message ID, and timestamp.
 - If the investigation reveals a known threat actor (from TI), name them and include their TTPs.

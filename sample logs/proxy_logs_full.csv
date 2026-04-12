@@ -1,0 +1,12 @@
+_time,src_ip,user,url,action
+2026-04-10T10:45:00,192.168.1.50,jsmith@yourcompany.com,http://update-microsoft-support.com/login,ALLOWED
+2026-04-10T11:10:00,192.168.1.51,tstark@yourcompany.com,http://update-microsoft-support.com/login,ALLOWED
+2026-04-11T09:15:00,192.168.1.52,amorales@yourcompany.com,http://hr-benefits-portal.com/verify,ALLOWED
+2026-04-11T09:22:00,192.168.1.53,bwilson@yourcompany.com,http://hr-benefits-portal.com/verify,ALLOWED
+2026-04-11T09:45:00,192.168.1.54,cjones@yourcompany.com,http://hr-benefits-portal.com/verify,ALLOWED
+2026-04-11T14:30:00,192.168.1.55,dpark@yourcompany.com,http://secure-dropbox-share.com/doc/shared-file,BLOCKED
+2026-04-11T14:35:00,192.168.1.58,rnguyen@yourcompany.com,http://secure-dropbox-share.com/doc/shared-file,BLOCKED
+2026-04-12T08:10:00,192.168.1.56,efoster@yourcompany.com,https://helpdesk.yourcompany.com/ticket/2847,ALLOWED
+2026-04-12T13:00:00,192.168.1.50,jsmith@yourcompany.com,http://vendor-portal-update.com/patch,ALLOWED
+2026-04-12T13:20:00,192.168.1.57,gthomas@yourcompany.com,http://vendor-portal-update.com/patch,ALLOWED
+2026-04-12T13:35:00,192.168.1.59,hlee@yourcompany.com,http://vendor-portal-update.com/patch,ALLOWED

