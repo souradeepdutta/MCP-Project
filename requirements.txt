@@ -4,3 +4,4 @@ urllib3
 python-dotenv
 streamlit
 pandas
+altair

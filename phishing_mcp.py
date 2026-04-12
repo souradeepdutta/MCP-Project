@@ -2,13 +2,14 @@ from mcp.server.fastmcp import FastMCP
 import json
 import os
 import re
-import email
+import csv
+import io
+import base64
 import requests
 import urllib3
 import sqlite3
 import uuid
 import datetime
-import hashlib
 from pathlib import Path
 from email import policy
 from email.parser import BytesParser
@@ -33,66 +34,60 @@ SPLUNK_PASSWORD = os.getenv("SPLUNK_PASSWORD", "")
 # VirusTotal configuration from environment
 VT_API_KEY = os.getenv("VT_API_KEY", "")
 
-# Email ingestion configuration
-EMAIL_SOURCE = os.getenv("EMAIL_SOURCE", "mock")
+# Mailpit configuration
 MAILPIT_URL = os.getenv("MAILPIT_URL", "http://localhost:8025")
-EML_FILE_PATH = os.getenv("EML_FILE_PATH", "")
+
+# Precompiled regex for URL extraction (used across email parsing)
+_URL_PATTERN = re.compile(r'https?://[^\s<>"\']+')
 
 
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS investigations
-                 (case_id TEXT PRIMARY KEY,
-                  timestamp TEXT,
-                  message_id TEXT,
-                  verdict TEXT,
-                  summary TEXT,
-                  technical_details TEXT,
-                  actions TEXT)''')
-    conn.commit()
-    conn.close()
+    """Initialize the investigations database table."""
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute('''CREATE TABLE IF NOT EXISTS investigations
+                     (case_id TEXT PRIMARY KEY,
+                      timestamp TEXT,
+                      message_id TEXT,
+                      verdict TEXT,
+                      summary TEXT,
+                      technical_details TEXT,
+                      actions TEXT)''')
+
+
 # Run this when the script loads
 init_db()
 
 
 # ─────────────────────────────────────────────────────────────
-# TOOL 1: Extract Email Artifacts
+# Shared Helpers
 # ─────────────────────────────────────────────────────────────
 
-def _parse_eml_file(file_path: str) -> dict:
-    """Parse a local .eml file and extract artifacts."""
-    with open(file_path, "rb") as f:
-        msg = BytesParser(policy=policy.default).parse(f)
+def _extract_artifacts_from_message(msg, fallback_id: str = "") -> dict:
+    """Extract sender, subject, URLs, attachments, and body snippet
+    from a parsed email.message.Message object.
 
+    This is the single source of truth for email artifact extraction,
+    used by the Mailpit ingestion path.
+    """
     sender = msg["from"] or ""
     subject = msg["subject"] or ""
     recipients = [addr.strip() for addr in (msg["to"] or "").split(",")]
-    message_id = msg["message-id"] or ""
+    message_id = msg["message-id"] or fallback_id
 
-    # Extract URLs from body
-    urls = []
+    # Extract body text from all text parts
     body_text = ""
     if msg.is_multipart():
         for part in msg.walk():
-            content_type = part.get_content_type()
-            if content_type in ("text/plain", "text/html"):
+            if part.get_content_type() in ("text/plain", "text/html"):
                 payload = part.get_content()
                 if payload:
                     body_text += payload
     else:
         body_text = msg.get_content() or ""
 
-    # Regex to extract URLs from text or HTML
-    url_pattern = re.compile(r'https?://[^\s<>"\']+')
-    urls = list(set(url_pattern.findall(body_text)))
-
-    # Extract attachment filenames
-    attachments = []
-    for part in msg.walk():
-        filename = part.get_filename()
-        if filename:
-            attachments.append(filename)
+    # Extract URLs and attachment filenames
+    urls = list(set(_URL_PATTERN.findall(body_text)))
+    attachments = [part.get_filename() for part in msg.walk() if part.get_filename()]
 
     return {
         "message_id": message_id,
@@ -105,8 +100,85 @@ def _parse_eml_file(file_path: str) -> dict:
     }
 
 
-def _fetch_from_mailpit(target_message_id: str = "") -> dict:
-    """Fetch an email from Mailpit API and parse it."""
+def _query_splunk_raw(index: str, search_term: str) -> list[dict]:
+    """Execute a Splunk export search and return raw result dicts.
+
+    Handles the HTTP POST, authentication, and JSON-lines response parsing.
+    Callers are responsible for extracting domain-specific fields from results.
+    """
+    response = requests.post(
+        f"{SPLUNK_URL}/services/search/jobs/export",
+        auth=(SPLUNK_USERNAME, SPLUNK_PASSWORD),
+        data={
+            "search": f'search index="{index}" "{search_term}"',
+            "output_mode": "json"
+        },
+        verify=False,
+        timeout=10
+    )
+    response.raise_for_status()
+
+    results = []
+    for line in response.text.strip().split('\n'):
+        if line:
+            data = json.loads(line)
+            if 'result' in data:
+                results.append(data['result'])
+    return results
+
+
+# ─────────────────────────────────────────────────────────────
+# TOOL 1: Extract Email Artifacts (Mailpit)
+# ─────────────────────────────────────────────────────────────
+
+# Natural language positional keywords → index in the messages list (0 = most recent)
+_POSITIONAL_KEYWORDS = {
+    "latest": 0, "newest": 0, "most recent": 0, "last": 0,
+    "1st": 0, "first": 0,
+    "2nd": 1, "second": 1, "2nd latest": 1,
+    "3rd": 2, "third": 2, "3rd latest": 2,
+    "4th": 3, "fourth": 3,
+    "5th": 4, "fifth": 4,
+    "oldest": -1,
+}
+
+
+def _resolve_positional_query(query: str, total: int) -> int | None:
+    """Resolve natural language positional phrases to a message index.
+    Returns None if the query is not a positional phrase."""
+    if query in _POSITIONAL_KEYWORDS:
+        idx = _POSITIONAL_KEYWORDS[query]
+        if idx == -1:
+            return total - 1  # oldest = last item
+        return min(idx, total - 1)
+    return None
+
+
+def _get_sender_address(message: dict) -> str:
+    """Safely extract the sender email address from a Mailpit message object.
+    Mailpit returns From as a single dict {Name, Address}, not a list."""
+    from_field = message.get("From")
+    if isinstance(from_field, dict):
+        return from_field.get("Address", "").lower()
+    if isinstance(from_field, list) and from_field:
+        return from_field[0].get("Address", "").lower()
+    return ""
+
+
+@mcp.tool()
+def extract_email_artifacts(search_query: str) -> str:
+    """
+    Retrieves extracted indicators from a reported suspicious email via Mailpit.
+    Always run this first when investigating an email.
+
+    Supports flexible search:
+    - By Message-ID:  e.g., "<MSG-1049@update-microsoft-support.com>"
+    - By subject:     e.g., "invoice", "security patch", "URGENT"
+    - By sender:      e.g., "billing@update-microsoft-support.com"
+    - By position:    "latest", "newest", "oldest", "2nd latest", "3rd"
+
+    If no match is found, defaults to the latest (most recent) email.
+    """
     try:
         # Get all messages from Mailpit
         resp = requests.get(f"{MAILPIT_URL}/api/v1/messages", timeout=10)
@@ -114,100 +186,62 @@ def _fetch_from_mailpit(target_message_id: str = "") -> dict:
         messages = resp.json().get("messages", [])
 
         if not messages:
-            return {"error": "No messages found in Mailpit inbox."}
+            return json.dumps({"error": "No messages found in Mailpit inbox."}, indent=2)
 
-        target_internal_id = None
-        for m in messages:
-            msg_id_header = m.get("MessageID", "")
-            subject = m.get("Subject", "")
-            
-            clean_target = target_message_id.lower().strip("\"'")
-            if clean_target:
-                if clean_target in msg_id_header.lower() or clean_target in subject.lower():
+        clean_query = search_query.lower().strip("\"'").strip()
+
+        # 1. Check for natural language positional phrases first
+        positional_idx = _resolve_positional_query(clean_query, len(messages))
+        if positional_idx is not None:
+            target_internal_id = messages[positional_idx]["ID"]
+        else:
+            target_internal_id = None
+
+            # 2. Primary: Client-side substring matching (Exact phrase match)
+            # Mailpit's text search tokenizes by space and does an OR match, causing false positives.
+            for m in messages:
+                msg_id = m.get("MessageID", "").lower()
+                subject = m.get("Subject", "").lower()
+                sender = _get_sender_address(m)
+
+                if clean_query and (
+                    clean_query in msg_id
+                    or clean_query in subject
+                    or clean_query in sender
+                ):
                     target_internal_id = m["ID"]
                     break
 
-        if not target_internal_id:
-            target_internal_id = messages[0]["ID"]  # Fallback to latest
+            # 3. Fallback: Mailpit's native search API (if client-side fails)
+            if not target_internal_id:
+                try:
+                    search_resp = requests.get(
+                        f"{MAILPIT_URL}/api/v1/messages",
+                        params={"query": search_query},
+                        timeout=10
+                    )
+                    search_resp.raise_for_status()
+                    search_results = search_resp.json().get("messages", [])
+                    if search_results:
+                        target_internal_id = search_results[0]["ID"]
+                except Exception:
+                    pass
 
-        # Fetch the raw .eml source
+            # 4. Final fallback: latest email
+            if not target_internal_id:
+                target_internal_id = messages[0]["ID"]
+
+        # Fetch the raw .eml source and parse with shared helper
         eml_resp = requests.get(f"{MAILPIT_URL}/api/v1/message/{target_internal_id}/raw", timeout=10)
         eml_resp.raise_for_status()
 
         msg = BytesParser(policy=policy.default).parsebytes(eml_resp.content)
+        result = _extract_artifacts_from_message(msg, fallback_id=target_internal_id)
 
-        sender = msg["from"] or ""
-        subject = msg["subject"] or ""
-        recipients = [addr.strip() for addr in (msg["to"] or "").split(",")]
-        message_id = msg["message-id"] or target_internal_id
-
-        urls = []
-        body_text = ""
-        if msg.is_multipart():
-            for part in msg.walk():
-                content_type = part.get_content_type()
-                if content_type in ("text/plain", "text/html"):
-                    payload = part.get_content()
-                    if payload:
-                        body_text += payload
-        else:
-            body_text = msg.get_content() or ""
-
-        url_pattern = re.compile(r'https?://[^\s<>"\']+')
-        urls = list(set(url_pattern.findall(body_text)))
-
-        attachments = []
-        for part in msg.walk():
-            filename = part.get_filename()
-            if filename:
-                attachments.append(filename)
-
-        return {
-            "message_id": message_id,
-            "sender": sender,
-            "subject": subject,
-            "recipients": recipients,
-            "urls": urls,
-            "attachments": attachments,
-            "body_snippet": body_text[:500]
-        }
+        return json.dumps(result, indent=2)
 
     except Exception as e:
-        return {"error": f"Failed to fetch from Mailpit: {str(e)}"}
-
-
-def _mock_email_data() -> dict:
-    """Fallback mock email data for demo/testing."""
-    return {
-        "sender": "billing@update-microsoft-support.com",
-        "subject": "URGENT: Your invoice #9948 is overdue",
-        "recipients": ["finance@yourcompany.com"],
-        "urls": ["http://update-microsoft-support.com/login"],
-        "attachments": ["invoice_9948.pdf"]
-    }
-
-
-@mcp.tool()
-def extract_email_artifacts(message_id: str) -> str:
-    """
-    Retrieves extracted indicators from a reported suspicious email.
-    Always run this first when investigating an email.
-
-    Supports three modes (configured via EMAIL_SOURCE env var):
-    - 'mock': Returns hardcoded demo data (default)
-    - 'file': Parses a local .eml file (set EML_FILE_PATH in .env)
-    - 'mailpit': Fetches the latest email from Mailpit API
-    """
-    if EMAIL_SOURCE == "file" and EML_FILE_PATH:
-        if not Path(EML_FILE_PATH).exists():
-            return json.dumps({"error": f"EML file not found: {EML_FILE_PATH}"}, indent=2)
-        result = _parse_eml_file(EML_FILE_PATH)
-    elif EMAIL_SOURCE == "mailpit":
-        result = _fetch_from_mailpit(message_id)
-    else:
-        result = _mock_email_data()
-
-    return json.dumps(result, indent=2)
+        return json.dumps({"error": f"Failed to fetch from Mailpit: {str(e)}"}, indent=2)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -220,46 +254,31 @@ def query_splunk_for_clicks(url: str) -> str:
     Queries the SIEM (Splunk) to see if any users clicked a specific URL.
     Use this to determine the blast radius and user impact.
     """
-    splunk_endpoint = f"{SPLUNK_URL}/services/search/jobs/export"
-
-    # SPL query looking for the exact URL (raw text search)
-    search_query = f'search index="proxy_logs" "{url}"'
-
     try:
-        response = requests.post(
-            splunk_endpoint,
-            auth=(SPLUNK_USERNAME, SPLUNK_PASSWORD),
-            data={
-                "search": search_query,
-                "output_mode": "json"
-            },
-            verify=False, # Ignore self-signed certs for local Splunk
-            timeout=10
-        )
+        raw_results = _query_splunk_raw("proxy_logs", url)
 
-        response.raise_for_status()
-
-        # Splunk export endpoint returns multiple JSON objects separated by newlines
         results = []
-        import csv
-        import io
-        for line in response.text.strip().split('\n'):
-            if line:
-                data = json.loads(line)
-                if 'result' in data:
-                    res = data['result']
-                    # Try to use extracted fields if they exist
-                    if 'user' in res and 'src_ip' in res:
-                        results.append({'_time': res.get('_time'), 'user': res.get('user'), 'src_ip': res.get('src_ip'), 'action': res.get('action')})
-                    elif '_raw' in res:
-                        # Fallback to parsing _raw CSV
-                        raw = res['_raw']
-                        if raw.startswith('_time'):
-                            continue # skip header
-                        reader = csv.reader(io.StringIO(raw))
-                        for row in reader:
-                            if len(row) >= 5:
-                                results.append({'_time': row[0], 'src_ip': row[1], 'user': row[2], 'url': row[3], 'action': row[4]})
+        for res in raw_results:
+            # Try to use extracted fields if they exist
+            if 'user' in res and 'src_ip' in res:
+                results.append({
+                    '_time': res.get('_time'),
+                    'user': res.get('user'),
+                    'src_ip': res.get('src_ip'),
+                    'action': res.get('action')
+                })
+            elif '_raw' in res:
+                # Fallback to parsing _raw CSV
+                raw = res['_raw']
+                if raw.startswith('_time'):
+                    continue  # skip header
+                reader = csv.reader(io.StringIO(raw))
+                for row in reader:
+                    if len(row) >= 5:
+                        results.append({
+                            '_time': row[0], 'src_ip': row[1],
+                            'user': row[2], 'url': row[3], 'action': row[4]
+                        })
 
         if not results:
             return f"0 clicks found for URL: {url}"
@@ -277,47 +296,34 @@ def query_splunk_for_clicks(url: str) -> str:
 @mcp.tool()
 def query_endpoint_activity(ip_address: str) -> str:
     """
-    Queries Endpoint Detection and Response (EDR) logs in Splunk to check for 
+    Queries Endpoint Detection and Response (EDR) logs in Splunk to check for
     suspicious process execution on a specific machine.
     Run this ONLY IF a user has clicked a malicious link.
     """
-    splunk_endpoint = f"{SPLUNK_URL}/services/search/jobs/export"
-
-    # SPL query looking for host_ip (raw text search)
-    search_query = f'search index="edr_logs" "{ip_address}"'
-
     try:
-        response = requests.post(
-            splunk_endpoint,
-            auth=(SPLUNK_USERNAME, SPLUNK_PASSWORD),
-            data={
-                "search": search_query,
-                "output_mode": "json"
-            },
-            verify=False,
-            timeout=10
-        )
-
-        response.raise_for_status()
+        raw_results = _query_splunk_raw("edr_logs", ip_address)
 
         results = []
-        import csv
-        import io
-        for line in response.text.strip().split('\n'):
-            if line:
-                data = json.loads(line)
-                if 'result' in data:
-                    res = data['result']
-                    if 'process_name' in res and 'command_line' in res:
-                        results.append({'_time': res.get('_time'), 'process_name': res.get('process_name'), 'command_line': res.get('command_line')})
-                    elif '_raw' in res:
-                        raw = res['_raw']
-                        if raw.startswith('_time'):
-                            continue
-                        reader = csv.reader(io.StringIO(raw))
-                        for row in reader:
-                            if len(row) >= 6:
-                                results.append({'_time': row[0], 'host_ip': row[1], 'user': row[2], 'process_name': row[3], 'command_line': row[4], 'action': row[5]})
+        for res in raw_results:
+            # Try to use extracted fields if they exist
+            if 'process_name' in res and 'command_line' in res:
+                results.append({
+                    '_time': res.get('_time'),
+                    'process_name': res.get('process_name'),
+                    'command_line': res.get('command_line')
+                })
+            elif '_raw' in res:
+                raw = res['_raw']
+                if raw.startswith('_time'):
+                    continue
+                reader = csv.reader(io.StringIO(raw))
+                for row in reader:
+                    if len(row) >= 6:
+                        results.append({
+                            '_time': row[0], 'host_ip': row[1],
+                            'user': row[2], 'process_name': row[3],
+                            'command_line': row[4], 'action': row[5]
+                        })
 
         if not results:
             return f"No endpoint activity found for IP: {ip_address}"
@@ -340,34 +346,37 @@ def _query_virustotal(indicator: str, indicator_type: str) -> dict | None:
     headers = {"x-apikey": VT_API_KEY}
     base_url = "https://www.virustotal.com/api/v3"
 
+    # Map indicator types to their VT API endpoints
+    endpoint_map = {
+        "domain": f"{base_url}/domains/{indicator}",
+        "ip": f"{base_url}/ip_addresses/{indicator}",
+        "hash": f"{base_url}/files/{indicator}",
+    }
+
     try:
-        if indicator_type == "domain":
-            resp = requests.get(f"{base_url}/domains/{indicator}", headers=headers, timeout=15)
-        elif indicator_type == "ip":
-            resp = requests.get(f"{base_url}/ip_addresses/{indicator}", headers=headers, timeout=15)
-        elif indicator_type == "hash":
-            resp = requests.get(f"{base_url}/files/{indicator}", headers=headers, timeout=15)
-        elif indicator_type == "url":
+        if indicator_type == "url":
             # VT requires URL ID as base64(url) without padding
-            import base64
             url_id = base64.urlsafe_b64encode(indicator.encode()).decode().rstrip("=")
-            resp = requests.get(f"{base_url}/urls/{url_id}", headers=headers, timeout=15)
+            endpoint = f"{base_url}/urls/{url_id}"
+        elif indicator_type in endpoint_map:
+            endpoint = endpoint_map[indicator_type]
         else:
             return None
+
+        resp = requests.get(endpoint, headers=headers, timeout=15)
 
         if resp.status_code == 200:
             data = resp.json().get("data", {}).get("attributes", {})
             stats = data.get("last_analysis_stats", {})
             malicious = stats.get("malicious", 0)
             total = sum(stats.values()) if stats else 0
-            reputation = data.get("reputation", "N/A")
 
             return {
                 "source": "VirusTotal",
                 "indicator": indicator,
                 "type": indicator_type,
                 "malicious_detections": f"{malicious}/{total}",
-                "reputation_score": reputation,
+                "reputation_score": data.get("reputation", "N/A"),
                 "tags": data.get("tags", []),
                 "verdict": "MALICIOUS" if malicious > 5 else "SUSPICIOUS" if malicious > 0 else "CLEAN"
             }
@@ -501,15 +510,15 @@ def save_investigation_report(message_id: str, verdict: str, summary: str, techn
     timestamp = datetime.datetime.now().isoformat()
 
     try:
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
-        c.execute("INSERT INTO investigations VALUES (?, ?, ?, ?, ?, ?, ?)",
-                  (case_id, timestamp, message_id, verdict, summary, technical_details, recommended_actions))
-        conn.commit()
-        conn.close()
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.execute(
+                "INSERT INTO investigations VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (case_id, timestamp, message_id, verdict, summary, technical_details, recommended_actions)
+            )
         return f"SUCCESS: Investigation formally saved. Case ID generated: {case_id}"
     except Exception as e:
         return f"Error saving case to database: {str(e)}"
+
 
 if __name__ == "__main__":
     mcp.run()
