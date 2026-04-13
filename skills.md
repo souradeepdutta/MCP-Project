@@ -36,7 +36,7 @@ Do NOT stop at the first suspicious process. Trace the entire chain.
 
 ### Step 5 — Verdict & Save
 Classify using exactly one of:
-- `BENIGN` — False positive
+- `FALSE POSITIVE` — False positive
 - `SUSPICIOUS` — Weak indicators, needs monitoring
 - `CONFIRMED PHISHING` — Malicious, no user interaction
 - `CONFIRMED PHISHING — USER CLICKED` — Clicked, no endpoint compromise

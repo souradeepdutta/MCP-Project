@@ -188,7 +188,12 @@ def extract_email_artifacts(search_query: str) -> str:
         if not messages:
             return json.dumps({"error": "No messages found in Mailpit inbox."}, indent=2)
 
-        clean_query = search_query.lower().strip("\"'").strip()
+        import re
+        def _normalize(s: str) -> str:
+            # Remove all literal quotes and compress spaces
+            return re.sub(r'\s+', ' ', s.replace("'", "").replace('"', "")).strip().lower()
+
+        clean_query = _normalize(search_query)
 
         # 1. Check for natural language positional phrases first
         positional_idx = _resolve_positional_query(clean_query, len(messages))
@@ -200,13 +205,13 @@ def extract_email_artifacts(search_query: str) -> str:
             # 2. Primary: Client-side substring matching (Exact phrase match)
             # Mailpit's text search tokenizes by space and does an OR match, causing false positives.
             for m in messages:
-                msg_id = m.get("MessageID", "").lower()
-                subject = m.get("Subject", "").lower()
+                msg_id = m.get("MessageID", "")
+                subject = m.get("Subject", "")
                 sender = _get_sender_address(m)
 
                 if clean_query and (
-                    clean_query in msg_id
-                    or clean_query in subject
+                    clean_query in _normalize(msg_id)
+                    or clean_query in _normalize(subject)
                     or clean_query in sender
                 ):
                     target_internal_id = m["ID"]
