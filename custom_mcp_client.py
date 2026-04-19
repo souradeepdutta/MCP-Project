@@ -74,11 +74,19 @@ Follow this exact Standard Operating Procedure (SOP):
 # --- DATABASE HANDLER ---
 class DatabaseHandler:
     @staticmethod
-    def get_pending_emails():
+    def get_pending_emails(limit=3):
         with sqlite3.connect(DB_PATH) as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT email_id, internal_mailpit_id FROM Emails WHERE status = 'Pending' LIMIT 1")
-            return cursor.fetchone()
+            cursor.execute("SELECT email_id, internal_mailpit_id FROM Emails WHERE status = 'Pending' LIMIT ?", (limit,))
+            rows = cursor.fetchall()
+            
+            if rows:
+                # Mark them as Processing so they don't get picked up again by concurrent polls
+                ids = [r[0] for r in rows]
+                placeholders = ','.join('?' * len(ids))
+                cursor.execute(f"UPDATE Emails SET status = 'Processing' WHERE email_id IN ({placeholders})", ids)
+                conn.commit()
+            return rows
 
     @staticmethod
     def insert_new_email(internal_id, msg_id, subject):
@@ -117,6 +125,7 @@ class AutonomousAgent:
     def __init__(self, email_id: int, mailpit_id: str):
         self.email_id = email_id
         self.mailpit_id = mailpit_id
+        self.log_prefix = f"[Agent-{email_id}]"
         # We start the conversation with the System Prompt and the User Request
         self.messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -124,7 +133,7 @@ class AutonomousAgent:
         ]
 
     async def run(self):
-        print(f"\n[Agent] Starting investigation for Email DB ID: {self.email_id}")
+        print(f"\n{self.log_prefix} Starting investigation for Mailpit ID: {self.mailpit_id}")
         
         # Start the local MCP server (phishing_mcp.py)
         server_params = StdioServerParameters(
@@ -152,22 +161,32 @@ class AutonomousAgent:
                         }
                     })
                 
-                print(f"[Agent] Loaded {len(llm_tools)} tools from MCP server.")
+                print(f"{self.log_prefix} Loaded {len(llm_tools)} tools from MCP server.")
 
                 # 3. Enter the LLM Tool-Calling Loop
                 while True:
-                    print(f"[LLM] Thinking...")
+                    print(f"{self.log_prefix} Thinking...")
                     
-                    try:
-                        response = await llm_client.chat.completions.create(
-                            model=MODEL_NAME,
-                            messages=self.messages,
-                            tools=llm_tools,
-                            tool_choice="auto"
-                        )
-                    except Exception as e:
-                        print(f"[LLM] API Error: {e}")
-                        print("Please ensure your API key is correct and the server is running.")
+                    response = None
+                    # Simple Retry Logic for Rate Limits (429)
+                    for attempt in range(4):
+                        try:
+                            response = await llm_client.chat.completions.create(
+                                model=MODEL_NAME,
+                                messages=self.messages,
+                                tools=llm_tools,
+                                tool_choice="auto"
+                            )
+                            break # Success
+                        except Exception as e:
+                            print(f"{self.log_prefix} API Error (Attempt {attempt+1}): {str(e)[:100]}...")
+                            if attempt < 3:
+                                print(f"{self.log_prefix} Sleeping for 20s to bypass rate limit...")
+                                await asyncio.sleep(20)
+                            else:
+                                print(f"{self.log_prefix} Fatal API Error. Investigation aborted.")
+                                
+                    if not response:
                         break
 
                     response_message = response.choices[0].message
@@ -177,7 +196,7 @@ class AutonomousAgent:
 
                     # If the LLM didn't call any tools, it means it is done investigating.
                     if not response_message.tool_calls:
-                        print(f"[LLM] Finished Investigation: {response_message.content}")
+                        print(f"{self.log_prefix} Finished Investigation: {response_message.content}")
                         break
                     
                     # If the LLM called tools, execute them via MCP
@@ -185,7 +204,7 @@ class AutonomousAgent:
                         func_name = tool_call.function.name
                         args = json.loads(tool_call.function.arguments)
                         
-                        print(f"[Agent] Executing tool: {func_name}")
+                        print(f"{self.log_prefix} Executing tool: {func_name}")
                         
                         try:
                             # Send the tool call to the local MCP server
@@ -212,11 +231,17 @@ async def main_loop():
     while True:
         MailpitWatcher.poll_for_new_emails()
         
-        pending_email = DatabaseHandler.get_pending_emails()
-        if pending_email:
-            email_id, mailpit_id = pending_email
-            agent = AutonomousAgent(email_id, mailpit_id)
-            await agent.run()
+        # Fetch up to 3 emails at once to process in parallel
+        pending_emails = DatabaseHandler.get_pending_emails(limit=3)
+        if pending_emails:
+            print(f"\n[Orchestrator] Found {len(pending_emails)} emails. Launching Agent Swarm in parallel...")
+            tasks = []
+            for email_id, mailpit_id in pending_emails:
+                agent = AutonomousAgent(email_id, mailpit_id)
+                tasks.append(agent.run())
+            
+            # Execute all agent investigations concurrently
+            await asyncio.gather(*tasks)
         else:
             time.sleep(5)  # Wait 5 seconds before polling again
 
