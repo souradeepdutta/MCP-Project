@@ -29,8 +29,7 @@ with open(CSS_PATH) as f:
 # Constants & Helpers
 # ─────────────────────────────────────────────────────────────
 
-BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = BASE_DIR / "soc_db.sqlite"
+from config import DB_PATH
 
 SEVERITY_ICONS = {"critical": "🔴", "warning": "🟡", "safe": "🟢"}
 

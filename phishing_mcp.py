@@ -1,6 +1,4 @@
-from mcp.server.fastmcp import FastMCP
 import json
-import os
 import re
 import csv
 import io
@@ -8,45 +6,21 @@ import base64
 import requests
 import urllib3
 import sqlite3
-import uuid
 import datetime
-from pathlib import Path
 from email import policy
 from email.parser import BytesParser
-from dotenv import load_dotenv
 
-# Load environment variables from .env
-load_dotenv()
+from config import (
+    DB_PATH, MAILPIT_URL,
+    SPLUNK_URL, SPLUNK_USERNAME, SPLUNK_PASSWORD,
+    VT_API_KEY, VT_MALICIOUS_THRESHOLD,
+)
 
 # Disable insecure request warnings for local self-signed Splunk certs
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-mcp = FastMCP("Phishing Investigator")
-
-BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = BASE_DIR / "soc_db.sqlite"
-
-# Splunk configuration from environment
-SPLUNK_URL = os.getenv("SPLUNK_URL", "https://localhost:8089")
-SPLUNK_USERNAME = os.getenv("SPLUNK_USERNAME", "")
-SPLUNK_PASSWORD = os.getenv("SPLUNK_PASSWORD", "")
-
-# VirusTotal configuration from environment
-VT_API_KEY = os.getenv("VT_API_KEY", "")
-
-# Mailpit configuration
-MAILPIT_URL = os.getenv("MAILPIT_URL", "http://localhost:8025")
-
 # Precompiled regex for URL extraction (used across email parsing)
 _URL_PATTERN = re.compile(r'https?://[^\s<>"\']+')
-
-
-def init_db():
-    """No-op, DB is initialized by db_init.py."""
-    pass
-
-# Run this when the script loads
-init_db()
 
 
 # ─────────────────────────────────────────────────────────────
@@ -122,7 +96,6 @@ def _query_splunk_raw(index: str, search_term: str) -> list[dict]:
 # TOOL 1: Extract Email Artifacts (Mailpit)
 # ─────────────────────────────────────────────────────────────
 
-@mcp.tool()
 def get_email_artifacts(internal_mailpit_id: str) -> str:
     """
     Retrieves extracted indicators from a reported suspicious email via Mailpit using its internal Mailpit ID.
@@ -146,7 +119,6 @@ def get_email_artifacts(internal_mailpit_id: str) -> str:
 # TOOL 2: Query Splunk for URL Clicks (Blast Radius)
 # ─────────────────────────────────────────────────────────────
 
-@mcp.tool()
 def query_splunk_for_clicks(url: str) -> str:
     """
     Queries the SIEM (Splunk) to see if any users clicked a specific URL.
@@ -191,7 +163,6 @@ def query_splunk_for_clicks(url: str) -> str:
 # TOOL 3: Query Endpoint Activity (EDR / Sysmon)
 # ─────────────────────────────────────────────────────────────
 
-@mcp.tool()
 def query_endpoint_activity(ip_address: str) -> str:
     """
     Queries Endpoint Detection and Response (EDR) logs in Splunk to check for
@@ -276,7 +247,7 @@ def _query_virustotal(indicator: str, indicator_type: str) -> dict | None:
                 "malicious_detections": f"{malicious}/{total}",
                 "reputation_score": data.get("reputation", "N/A"),
                 "tags": data.get("tags", []),
-                "verdict": "MALICIOUS" if malicious > 5 else "SUSPICIOUS" if malicious > 0 else "CLEAN"
+                "verdict": "MALICIOUS" if malicious > VT_MALICIOUS_THRESHOLD else "SUSPICIOUS" if malicious > 0 else "CLEAN"
             }
         elif resp.status_code == 404:
             return {
@@ -293,7 +264,6 @@ def _query_virustotal(indicator: str, indicator_type: str) -> dict | None:
         return None
 
 
-@mcp.tool()
 def check_threat_intel(indicator: str, indicator_type: str) -> str:
     """
     Queries threat intelligence for a domain, IP, URL, or file hash.
@@ -398,7 +368,6 @@ def check_threat_intel(indicator: str, indicator_type: str) -> str:
 # TOOL 5: Save Investigation Report
 # ─────────────────────────────────────────────────────────────
 
-@mcp.tool()
 def save_investigation_report(email_id: int, verdict: str, severity: str, summary: str, technical_details: str, recommended_actions: str) -> str:
     """
     Saves the final investigation verdict and summary into the local case management database.
@@ -436,5 +405,3 @@ def save_investigation_report(email_id: int, verdict: str, severity: str, summar
         return f"Error saving case to database: {str(e)}"
 
 
-if __name__ == "__main__":
-    mcp.run()

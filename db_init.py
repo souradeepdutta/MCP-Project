@@ -1,9 +1,6 @@
 import sqlite3
 import os
-from pathlib import Path
-
-BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = BASE_DIR / "soc_db.sqlite"
+from config import DB_PATH
 
 def init_db():
     """Initialize the new normalized SOC database."""

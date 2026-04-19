@@ -11,9 +11,9 @@ Architecture:
     Orchestrator --[SSE + Bearer Token]--> Gateway --[delegates]--> phishing_mcp tools
 """
 
+import ipaddress
 import json
 import logging
-import re
 import sys
 
 import uvicorn
@@ -27,6 +27,7 @@ from mcp.server.sse import SseServerTransport
 import mcp.types as types
 
 import phishing_mcp
+from config import INTERNAL_DOMAINS, GATEWAY_PORT
 
 # ─────────────────────────────────────────────────────────────
 # 1. Audit Logging Setup
@@ -83,7 +84,7 @@ def _handle_check_threat_intel(args: dict, role: str) -> list[types.TextContent]
     audit_logger.info(f"EXEC | Role: {role} | Tool: check_threat_intel | Args: {indicator}")
 
     # OpSec Filter: block internal domains from reaching VirusTotal
-    if "yourcompany.com" in indicator.lower():
+    if any(domain in indicator.lower() for domain in INTERNAL_DOMAINS):
         audit_logger.warning(f"BLOCKED | Role: {role} | Tool: check_threat_intel | Reason: Internal Domain OpSec")
         return [types.TextContent(type="text", text=f"BLOCKED: '{indicator}' is an internal domain. OpSec policy prevents querying public Threat Intel.")]
 
@@ -102,8 +103,10 @@ def _handle_query_endpoint_activity(args: dict, role: str) -> list[types.TextCon
     ip_address = args["ip_address"]
     audit_logger.info(f"EXEC | Role: {role} | Tool: query_endpoint_activity | Args: {ip_address}")
 
-    # Input Validation: strict IPv4 format to prevent SPL injection
-    if not re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", ip_address):
+    # Input Validation: proper IPv4 check to prevent SPL injection
+    try:
+        ipaddress.IPv4Address(ip_address)
+    except ValueError:
         audit_logger.warning(f"BLOCKED | Role: {role} | Tool: query_endpoint_activity | Reason: Invalid IP format '{ip_address}'")
         return [types.TextContent(type="text", text=f"BLOCKED: '{ip_address}' is not a valid IPv4 address. Preventing SPL injection.")]
 
@@ -271,4 +274,4 @@ if __name__ == "__main__":
     print(f"  Roles loaded: {list(ROLES.keys())}")
     print(f"  Tools in registry: {list(TOOL_REGISTRY.keys())}")
     print("=" * 60)
-    uvicorn.run(app, host="0.0.0.0", port=8035)
+    uvicorn.run(app, host="0.0.0.0", port=GATEWAY_PORT)

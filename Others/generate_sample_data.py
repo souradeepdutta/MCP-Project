@@ -13,7 +13,7 @@ Campaigns:
 import csv
 import os
 
-SAMPLE_DIR = os.path.join(os.path.dirname(__file__), "sample logs")
+SAMPLE_DIR = os.path.join(os.path.dirname(__file__), "..", "sample logs")
 
 # ─────────────────────────────────────────────────────────────
 # PROXY LOGS — Who visited which URL and was it allowed?

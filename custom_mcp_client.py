@@ -2,28 +2,19 @@ import sqlite3
 import requests
 import json
 import random
-from pathlib import Path
 import os
 import asyncio
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
+from mcp import ClientSession
 from mcp.client.sse import sse_client
-from dotenv import load_dotenv
 from openai import AsyncOpenAI
 
-# Load environment variables
-load_dotenv()
-
-# --- CONFIGURATION ---
-BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = BASE_DIR / "soc_db.sqlite"
-MAILPIT_URL = "http://localhost:8025"
+from config import DB_PATH, MAILPIT_URL, GATEWAY_URL
 
 # --- RBAC CONFIGURATION ---
 # Toggle this token to change what the agent is allowed to do!
 # "token-123" = L1_Triage (Can only extract artifacts and check threat intel)
 # "token-456" = L3_Responder (Full access including Splunk and Endpoint tools)
-AGENT_TOKEN = "token-123"
+AGENT_TOKEN = "token-456"
 
 
 # Choose your LLM Backend (Gemini by default)
@@ -81,63 +72,72 @@ Follow this exact Standard Operating Procedure (SOP):
 """
 
 
-# --- DATABASE HANDLER ---
-class DatabaseHandler:
-    @staticmethod
-    def get_pending_emails(limit=3):
-        with sqlite3.connect(DB_PATH) as conn:
-            cursor = conn.cursor()
+# --- DATABASE FUNCTIONS ---
 
-            cursor.execute("SELECT email_id, internal_mailpit_id FROM Emails WHERE status = 'Pending' LIMIT ?", (limit,))
-            rows = cursor.fetchall()
+def get_pending_emails(limit=3):
+    """Fetch up to `limit` pending emails and mark them as Processing."""
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
 
-            if rows:
-                # Mark them as Processing so they don't get picked up again by concurrent polls
-                ids = [r[0] for r in rows]
-                placeholders = ','.join('?' * len(ids))
-                cursor.execute(f"UPDATE Emails SET status = 'Processing' WHERE email_id IN ({placeholders})", ids)
-                conn.commit()
-            return rows
+        cursor.execute("SELECT email_id, internal_mailpit_id FROM Emails WHERE status = 'Pending' LIMIT ?", (limit,))
+        rows = cursor.fetchall()
 
-    @staticmethod
-    def insert_new_email(internal_id, msg_id, subject):
-        with sqlite3.connect(DB_PATH) as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT 1 FROM Emails WHERE internal_mailpit_id = ?", (internal_id,))
-            if not cursor.fetchone():
-                print(f"[DB] New email queued: {subject}")
-                cursor.execute(
-                    "INSERT INTO Emails (internal_mailpit_id, message_id, subject, status) VALUES (?, ?, ?, 'Pending')",
-                    (internal_id, msg_id, subject)
-                )
-                conn.commit()
+        if rows:
+            # Mark them as Processing so they don't get picked up again by concurrent polls
+            ids = [r[0] for r in rows]
+            placeholders = ','.join('?' * len(ids))
+            cursor.execute(f"UPDATE Emails SET status = 'Processing' WHERE email_id IN ({placeholders})", ids)
+            conn.commit()
+        return rows
 
-    @staticmethod
-    def reset_stale_investigations():
-        """Run once on startup to recover any emails left in 'Processing' from a previous crash."""
-        with sqlite3.connect(DB_PATH) as conn:
-            cursor = conn.cursor()
-            cursor.execute("UPDATE Emails SET status = 'Pending' WHERE status = 'Processing'")
-            if cursor.rowcount > 0:
-                print(f"[DB] Startup Recovery: Reset {cursor.rowcount} stuck email(s) back to 'Pending'.")
+
+def insert_new_email(internal_id, msg_id, subject):
+    """Insert a new email into the database if it doesn't already exist."""
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1 FROM Emails WHERE internal_mailpit_id = ?", (internal_id,))
+        if not cursor.fetchone():
+            print(f"[DB] New email queued: {subject}")
+            cursor.execute(
+                "INSERT INTO Emails (internal_mailpit_id, message_id, subject, status) VALUES (?, ?, ?, 'Pending')",
+                (internal_id, msg_id, subject)
+            )
             conn.commit()
 
+
+def reset_stale_investigations():
+    """Run once on startup to recover any emails left in 'Processing' from a previous crash."""
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE Emails SET status = 'Pending' WHERE status = 'Processing'")
+        if cursor.rowcount > 0:
+            print(f"[DB] Startup Recovery: Reset {cursor.rowcount} stuck email(s) back to 'Pending'.")
+        conn.commit()
+
+
+def reset_email_to_pending(email_id: int):
+    """Reset a single email back to 'Pending' after an agent failure so it can be retried."""
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute("UPDATE Emails SET status = 'Pending' WHERE email_id = ?", (email_id,))
+        conn.commit()
+
+
 # --- MAILPIT WATCHER ---
-class MailpitWatcher:
-    @staticmethod
-    def poll_for_new_emails():
-        print("[Watcher] Checking Mailpit for new emails...")
-        try:
-            resp = requests.get(f"{MAILPIT_URL}/api/v1/messages?limit=50", timeout=5)
-            if resp.status_code == 200:
-                messages = resp.json().get("messages", [])
-                for msg in messages:
-                    internal_id = msg["ID"]
-                    msg_id = msg.get("MessageID", "")
-                    subject = msg.get("Subject", "")
-                    DatabaseHandler.insert_new_email(internal_id, msg_id, subject)
-        except Exception as e:
-            print(f"[Watcher] Could not connect to Mailpit: {e}")
+
+def poll_for_new_emails():
+    """Check Mailpit for new emails and insert them into the database."""
+    print("[Watcher] Checking Mailpit for new emails...")
+    try:
+        resp = requests.get(f"{MAILPIT_URL}/api/v1/messages?limit=50", timeout=5)
+        if resp.status_code == 200:
+            messages = resp.json().get("messages", [])
+            for msg in messages:
+                internal_id = msg["ID"]
+                msg_id = msg.get("MessageID", "")
+                subject = msg.get("Subject", "")
+                insert_new_email(internal_id, msg_id, subject)
+    except Exception as e:
+        print(f"[Watcher] Could not connect to Mailpit: {e}")
 
 
 # --- AGENT ORCHESTRATOR ---
@@ -162,7 +162,7 @@ class AutonomousAgent:
         print(f"\n{self.log_prefix} Connecting to MCP Gateway via SSE...")
         
         # Connect to the MCP Gateway via SSE (authenticated)
-        url = "http://localhost:8035/sse"
+        url = GATEWAY_URL
         async with sse_client(url, headers={"Authorization": f"Bearer {AGENT_TOKEN}"}) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
@@ -263,13 +263,13 @@ async def main_loop():
     print("=" * 60)
 
     # Clean up state from any previous crashed runs before starting
-    DatabaseHandler.reset_stale_investigations()
+    reset_stale_investigations()
 
     while True:
-        MailpitWatcher.poll_for_new_emails()
+        poll_for_new_emails()
 
         # Fetch up to 3 emails at once to process in parallel
-        pending_emails = DatabaseHandler.get_pending_emails(limit=3)
+        pending_emails = get_pending_emails(limit=3)
         if pending_emails:
             print(f"\n[Orchestrator] Found {len(pending_emails)} email(s). Launching Agent Swarm...")
 
@@ -281,8 +281,10 @@ async def main_loop():
                     await asyncio.wait_for(agent.run(), timeout=AGENT_TIMEOUT_SECONDS)
                 except asyncio.TimeoutError:
                     print(f"{agent.log_prefix} TIMEOUT: Agent exceeded {AGENT_TIMEOUT_SECONDS}s. Aborting.")
+                    reset_email_to_pending(agent.email_id)
                 except Exception as e:
                     print(f"{agent.log_prefix} ERROR: Unhandled exception: {e}")
+                    reset_email_to_pending(agent.email_id)
 
             tasks = [run_with_timeout(AutonomousAgent(email_id, mailpit_id, start_delay=i * AGENT_START_DELAY_SECONDS))
                      for i, (email_id, mailpit_id) in enumerate(pending_emails)]

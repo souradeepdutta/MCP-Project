@@ -5,8 +5,9 @@ venv/
 # Environment secrets
 .env
 
-# Database (regenerated at runtime)
-cases.db
+# Database & logs (regenerated at runtime)
+soc_db.sqlite
+audit.log
 
 # Python bytecode
 __pycache__/
