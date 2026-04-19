@@ -30,7 +30,7 @@ with open(CSS_PATH) as f:
 # ─────────────────────────────────────────────────────────────
 
 BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = BASE_DIR / "cases.db"
+DB_PATH = BASE_DIR / "soc_db.sqlite"
 
 SEVERITY_ICONS = {"critical": "🔴", "warning": "🟡", "safe": "🟢"}
 
@@ -56,7 +56,12 @@ def load_cases() -> pd.DataFrame:
     try:
         with sqlite3.connect(DB_PATH) as conn:
             return pd.read_sql_query(
-                "SELECT case_id, timestamp, message_id, verdict FROM investigations ORDER BY timestamp DESC",
+                """
+                SELECT i.case_id, i.created_at as timestamp, e.message_id, i.verdict 
+                FROM Investigations i
+                JOIN Emails e ON i.email_id = e.email_id
+                ORDER BY i.created_at DESC
+                """,
                 conn
             )
     except Exception:
@@ -68,7 +73,12 @@ def get_case_details(case_id: str) -> tuple | None:
     try:
         with sqlite3.connect(DB_PATH) as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM investigations WHERE case_id=?", (case_id,))
+            cursor.execute("""
+                SELECT i.case_id, i.created_at, e.message_id, i.verdict, i.summary, i.technical_details, i.recommended_actions
+                FROM Investigations i
+                JOIN Emails e ON i.email_id = e.email_id
+                WHERE i.case_id=?
+            """, (case_id,))
             return cursor.fetchone()
     except Exception:
         return None

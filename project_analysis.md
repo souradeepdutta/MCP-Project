@@ -102,19 +102,6 @@ The original plan defined **7 functional modules**. Here's where each stands:
 
 **Impact:** "Campaign detection" is one of the top 3 selling points in your original pitch. Currently the data exists but the tool doesn't.
 
-#### C. Case Lifecycle & Status Management
-**What's missing:**
-- Cases are created once and never updated
-- No status field (Open → Investigating → Resolved → Closed)
-- No way to add analyst notes post-creation
-- No severity score (just keyword classification)
-
-**What you'd need:**
-1. Add `status` and `severity_score` columns to the DB schema
-2. New MCP tool or update `save_investigation_report` to support case updates
-3. Dashboard: Add status dropdown filter, allow manual status changes
-
----
 
 ### 🟡 MEDIUM PRIORITY — Would add polish and depth
 
@@ -140,9 +127,6 @@ This would strengthen the "email analysis" module from the original plan.
 ---
 
 ### 🟢 LOW PRIORITY — Nice to have for a PoC
-
-#### G. Endpoint Abstraction Layer
-The original plan recommended designing endpoint queries behind an abstraction so you could swap Wazuh/Sysmon for Defender later. Currently queries go direct to Splunk which is reasonable for a PoC but not abstracted.
 
 #### H. Rate Limiting & Error UX
 - VirusTotal free tier has rate limits (4 requests/minute). No retry/backoff logic.

@@ -24,7 +24,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 mcp = FastMCP("Phishing Investigator")
 
 BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = BASE_DIR / "cases.db"
+DB_PATH = BASE_DIR / "soc_db.sqlite"
 
 # Splunk configuration from environment
 SPLUNK_URL = os.getenv("SPLUNK_URL", "https://localhost:8089")
@@ -42,17 +42,8 @@ _URL_PATTERN = re.compile(r'https?://[^\s<>"\']+')
 
 
 def init_db():
-    """Initialize the investigations database table."""
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.execute('''CREATE TABLE IF NOT EXISTS investigations
-                     (case_id TEXT PRIMARY KEY,
-                      timestamp TEXT,
-                      message_id TEXT,
-                      verdict TEXT,
-                      summary TEXT,
-                      technical_details TEXT,
-                      actions TEXT)''')
-
+    """No-op, DB is initialized by db_init.py."""
+    pass
 
 # Run this when the script loads
 init_db()
@@ -131,117 +122,19 @@ def _query_splunk_raw(index: str, search_term: str) -> list[dict]:
 # TOOL 1: Extract Email Artifacts (Mailpit)
 # ─────────────────────────────────────────────────────────────
 
-# Natural language positional keywords → index in the messages list (0 = most recent)
-_POSITIONAL_KEYWORDS = {
-    "latest": 0, "newest": 0, "most recent": 0, "last": 0,
-    "1st": 0, "first": 0,
-    "2nd": 1, "second": 1, "2nd latest": 1,
-    "3rd": 2, "third": 2, "3rd latest": 2,
-    "4th": 3, "fourth": 3,
-    "5th": 4, "fifth": 4,
-    "oldest": -1,
-}
-
-
-def _resolve_positional_query(query: str, total: int) -> int | None:
-    """Resolve natural language positional phrases to a message index.
-    Returns None if the query is not a positional phrase."""
-    if query in _POSITIONAL_KEYWORDS:
-        idx = _POSITIONAL_KEYWORDS[query]
-        if idx == -1:
-            return total - 1  # oldest = last item
-        return min(idx, total - 1)
-    return None
-
-
-def _get_sender_address(message: dict) -> str:
-    """Safely extract the sender email address from a Mailpit message object.
-    Mailpit returns From as a single dict {Name, Address}, not a list."""
-    from_field = message.get("From")
-    if isinstance(from_field, dict):
-        return from_field.get("Address", "").lower()
-    if isinstance(from_field, list) and from_field:
-        return from_field[0].get("Address", "").lower()
-    return ""
-
-
 @mcp.tool()
-def extract_email_artifacts(search_query: str) -> str:
+def get_email_artifacts(internal_mailpit_id: str) -> str:
     """
-    Retrieves extracted indicators from a reported suspicious email via Mailpit.
+    Retrieves extracted indicators from a reported suspicious email via Mailpit using its internal Mailpit ID.
     Always run this first when investigating an email.
-
-    Supports flexible search:
-    - By Message-ID:  e.g., "<MSG-1049@update-microsoft-support.com>"
-    - By subject:     e.g., "invoice", "security patch", "URGENT"
-    - By sender:      e.g., "billing@update-microsoft-support.com"
-    - By position:    "latest", "newest", "oldest", "2nd latest", "3rd"
-
-    If no match is found, defaults to the latest (most recent) email.
     """
     try:
-        # Get all messages from Mailpit
-        resp = requests.get(f"{MAILPIT_URL}/api/v1/messages", timeout=10)
-        resp.raise_for_status()
-        messages = resp.json().get("messages", [])
-
-        if not messages:
-            return json.dumps({"error": "No messages found in Mailpit inbox."}, indent=2)
-
-        import re
-        def _normalize(s: str) -> str:
-            # Remove all literal quotes and compress spaces
-            return re.sub(r'\s+', ' ', s.replace("'", "").replace('"', "")).strip().lower()
-
-        clean_query = _normalize(search_query)
-
-        # 1. Check for natural language positional phrases first
-        positional_idx = _resolve_positional_query(clean_query, len(messages))
-        if positional_idx is not None:
-            target_internal_id = messages[positional_idx]["ID"]
-        else:
-            target_internal_id = None
-
-            # 2. Primary: Client-side substring matching (Exact phrase match)
-            # Mailpit's text search tokenizes by space and does an OR match, causing false positives.
-            for m in messages:
-                msg_id = m.get("MessageID", "")
-                subject = m.get("Subject", "")
-                sender = _get_sender_address(m)
-
-                if clean_query and (
-                    clean_query in _normalize(msg_id)
-                    or clean_query in _normalize(subject)
-                    or clean_query in sender
-                ):
-                    target_internal_id = m["ID"]
-                    break
-
-            # 3. Fallback: Mailpit's native search API (if client-side fails)
-            if not target_internal_id:
-                try:
-                    search_resp = requests.get(
-                        f"{MAILPIT_URL}/api/v1/messages",
-                        params={"query": search_query},
-                        timeout=10
-                    )
-                    search_resp.raise_for_status()
-                    search_results = search_resp.json().get("messages", [])
-                    if search_results:
-                        target_internal_id = search_results[0]["ID"]
-                except Exception:
-                    pass
-
-            # 4. Final fallback: latest email
-            if not target_internal_id:
-                target_internal_id = messages[0]["ID"]
-
         # Fetch the raw .eml source and parse with shared helper
-        eml_resp = requests.get(f"{MAILPIT_URL}/api/v1/message/{target_internal_id}/raw", timeout=10)
+        eml_resp = requests.get(f"{MAILPIT_URL}/api/v1/message/{internal_mailpit_id}/raw", timeout=10)
         eml_resp.raise_for_status()
 
         msg = BytesParser(policy=policy.default).parsebytes(eml_resp.content)
-        result = _extract_artifacts_from_message(msg, fallback_id=target_internal_id)
+        result = _extract_artifacts_from_message(msg, fallback_id=internal_mailpit_id)
 
         return json.dumps(result, indent=2)
 
@@ -506,19 +399,37 @@ def check_threat_intel(indicator: str, indicator_type: str) -> str:
 # ─────────────────────────────────────────────────────────────
 
 @mcp.tool()
-def save_investigation_report(message_id: str, verdict: str, summary: str, technical_details: str, recommended_actions: str) -> str:
+def save_investigation_report(email_id: int, verdict: str, severity: str, summary: str, technical_details: str, recommended_actions: str) -> str:
     """
     Saves the final investigation verdict and summary into the local case management database.
     Run this ONLY as the final step of an investigation after all evidence is gathered.
+    email_id MUST be the integer ID from the Emails table.
     """
-    case_id = f"CAS-{str(uuid.uuid4())[:8].upper()}"
     timestamp = datetime.datetime.now().isoformat()
+    short_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
     try:
         with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            # Fetch the actual Message-ID to create a readable Case ID
+            cursor.execute("SELECT message_id FROM Emails WHERE email_id = ?", (email_id,))
+            row = cursor.fetchone()
+            msg_id_raw = row[0] if row and row[0] else "UNKNOWN"
+            
+            # Clean up <MSG-1049@update-microsoft-support.com> into just MSG-1049
+            clean_msg_id = msg_id_raw.replace('<', '').replace('>', '').split('@')[0].upper()
+            if not clean_msg_id:
+                clean_msg_id = "UNKNOWN"
+                
+            case_id = f"CAS-{clean_msg_id}-{short_time}"
+
             conn.execute(
-                "INSERT INTO investigations VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (case_id, timestamp, message_id, verdict, summary, technical_details, recommended_actions)
+                "INSERT INTO Investigations (case_id, email_id, verdict, severity, summary, technical_details, recommended_actions, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (case_id, email_id, verdict, severity, summary, technical_details, recommended_actions, timestamp)
+            )
+            conn.execute(
+                "UPDATE Emails SET status = 'Investigated' WHERE email_id = ?",
+                (email_id,)
             )
         return f"SUCCESS: Investigation formally saved. Case ID generated: {case_id}"
     except Exception as e:
