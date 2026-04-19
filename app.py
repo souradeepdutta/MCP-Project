@@ -56,7 +56,7 @@ def load_cases() -> pd.DataFrame:
         with sqlite3.connect(DB_PATH) as conn:
             return pd.read_sql_query(
                 """
-                SELECT i.case_id, i.created_at as timestamp, e.message_id, i.verdict 
+                SELECT i.case_id, i.created_at as timestamp, e.message_id, i.verdict, i.escalation_status 
                 FROM Investigations i
                 JOIN Emails e ON i.email_id = e.email_id
                 ORDER BY i.created_at DESC
@@ -73,7 +73,7 @@ def get_case_details(case_id: str) -> tuple | None:
         with sqlite3.connect(DB_PATH) as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT i.case_id, i.created_at, e.message_id, i.verdict, i.summary, i.technical_details, i.recommended_actions
+                SELECT i.case_id, i.created_at, e.message_id, i.verdict, i.summary, i.technical_details, i.recommended_actions, i.confidence, i.escalation_status, i.uncertainty_factors
                 FROM Investigations i
                 JOIN Emails e ON i.email_id = e.email_id
                 WHERE i.case_id=?
@@ -123,7 +123,7 @@ with st.sidebar:
         st.markdown(f"**{len(df)}** total investigation(s) on file")
         st.markdown("")
 
-        # Filter
+        # Filters
         selected_severities = st.multiselect(
             "Filter by Severity",
             options=["critical", "warning", "safe"],
@@ -131,7 +131,17 @@ with st.sidebar:
             format_func=lambda x: x.capitalize()
         )
         
-        filtered_df = df[df['severity'].isin(selected_severities)] if selected_severities else df
+        selected_escalation = st.multiselect(
+            "Filter by Status",
+            options=["Auto-Closed", "Flagged for Review", "Escalated to Human"],
+            default=["Auto-Closed", "Flagged for Review", "Escalated to Human"]
+        )
+        
+        filtered_df = df
+        if selected_severities:
+            filtered_df = filtered_df[filtered_df['severity'].isin(selected_severities)]
+        if selected_escalation and 'escalation_status' in filtered_df.columns:
+            filtered_df = filtered_df[filtered_df['escalation_status'].isin(selected_escalation)]
 
         # Case selector
         if filtered_df.empty:
@@ -204,11 +214,14 @@ if df.empty:
 else:
     # ── Metrics Row — derived from pre-computed severity column ──
     severity_counts = df['severity'].value_counts()
+    
+    auto_closed_count = len(df[df['escalation_status'] == 'Auto-Closed']) if 'escalation_status' in df.columns else 0
+    auto_close_rate = f"{(auto_closed_count / len(df) * 100):.0f}%" if len(df) > 0 else "0%"
 
     metrics = [
         (len(df), "Total Cases", "#818cf8"),
+        (auto_close_rate, "Auto-Closed", "#38bdf8"),
         (severity_counts.get("critical", 0), "Critical", "#ef4444"),
-        (severity_counts.get("warning", 0), "Suspicious", "#f59e0b"),
         (df['message_id'].nunique(), "Unique Alerts", "#10b981"),
     ]
 
@@ -266,12 +279,19 @@ else:
     if selected_case_id:
         details = get_case_details(selected_case_id)
         if details:
-            case_id, timestamp, msg_id, verdict, summary, tech_details, actions = details
+            case_id, timestamp, msg_id, verdict, summary, tech_details, actions, confidence, escalation_status, uncertainty_factors = details
             severity = classify_verdict(verdict)
 
             # Verdict badge
             badge_class = f"verdict-{severity}"
             severity_icon = SEVERITY_ICONS.get(severity, "🟡")
+            
+            # Escalation badge
+            escalation_badge_class = "escalation-auto"
+            if escalation_status == "Flagged for Review":
+                escalation_badge_class = "escalation-flagged"
+            elif escalation_status == "Escalated to Human":
+                escalation_badge_class = "escalation-human"
 
             # Parse timestamp
             try:
@@ -279,23 +299,54 @@ else:
                 formatted_ts = ts_parsed.strftime("%B %d, %Y  ·  %I:%M %p")
             except Exception:
                 formatted_ts = timestamp
+                
+            conf_percent = int((confidence or 0) * 100)
+            conf_color = "#10b981" if conf_percent >= 85 else "#f59e0b" if conf_percent >= 60 else "#ef4444"
 
             # Case header
             st.markdown(f"""
             <div class="case-card">
                 <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px;">
-                    <div>
+                    <div style="flex: 1;">
                         <h2 style="margin: 0; color: #e0e7ff; font-weight: 800;">{severity_icon} {case_id}</h2>
                         <p style="color: #64748b; margin: 4px 0 12px 0; font-size: 0.9rem;">
                             Alert: <strong style="color: #94a3b8;">{msg_id}</strong>  ·  {formatted_ts}
                         </p>
+                        <div style="display: flex; gap: 10px; align-items: center; margin-top: 10px;">
+                            <span class="{badge_class}">{verdict}</span>
+                            <span class="{escalation_badge_class}">{escalation_status}</span>
+                        </div>
                     </div>
-                    <div>
-                        <span class="{badge_class}">{verdict}</span>
+                    <div style="min-width: 200px; text-align: right;">
+                        <div style="color: #94a3b8; font-size: 0.85rem; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 1px;">Agent Confidence</div>
+                        <div style="display: flex; align-items: center; gap: 10px; justify-content: flex-end;">
+                            <div style="width: 120px; height: 8px; background: #1e293b; border-radius: 4px; overflow: hidden;">
+                                <div style="width: {conf_percent}%; height: 100%; background: {conf_color};"></div>
+                            </div>
+                            <span style="color: {conf_color}; font-weight: 700; font-size: 1.1rem;">{conf_percent}%</span>
+                        </div>
                     </div>
                 </div>
             </div>
             """, unsafe_allow_html=True)
+            
+            # Show uncertainty factors if any
+            import json
+            try:
+                factors = json.loads(uncertainty_factors) if uncertainty_factors else []
+            except:
+                factors = []
+                
+            if factors:
+                factors_html = "".join([f"<li style='margin-bottom: 6px;'>{f}</li>" for f in factors])
+                st.markdown(f"""
+                <div style="background: rgba(245, 158, 11, 0.1); border-left: 4px solid #f59e0b; padding: 16px; margin-bottom: 16px; border-radius: 4px 8px 8px 4px;">
+                    <h4 style="margin: 0 0 10px 0; color: #fcd34d; font-size: 0.95rem;">⚠️ Uncertainty Factors</h4>
+                    <ul style="margin: 0; color: #cbd5e1; font-size: 0.9rem; padding-left: 20px;">
+                        {factors_html}
+                    </ul>
+                </div>
+                """, unsafe_allow_html=True)
 
             # Tabs for Summary and Actions
             tab_summary, tab_tech, tab_actions, tab_raw = st.tabs(
@@ -321,7 +372,10 @@ else:
                     "timestamp": timestamp,
                     "message_id": msg_id,
                     "verdict": verdict,
+                    "confidence": confidence,
+                    "escalation_status": escalation_status,
                     "summary": summary,
                     "technical_details": tech_details,
-                    "recommended_actions": actions
+                    "recommended_actions": actions,
+                    "uncertainty_factors": factors
                 })

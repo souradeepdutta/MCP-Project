@@ -60,6 +60,8 @@ Follow this exact Standard Operating Procedure (SOP):
    - **Summary**: A concise, non-technical executive summary of the threat and impact.
    - **Technical Details**: Detailed attack chain. Detail the spoofing tactics observed. List all IOCs, IPs, users, and processes. Separate each endpoint/user's activity with blank lines.
    - **Recommended Actions**: Tiered as IMMEDIATE / SHORT-TERM / LONG-TERM formatted as proper Markdown lists (`- `).
+   - **Confidence Score**: Evaluate your confidence in the verdict as a float from `0.0` to `1.0`.
+   - **Uncertainty Factors**: Provide a list of strings explaining any missing information, blind spots, or reasons for uncertainty (e.g. "TI returned UNKNOWN for domain", "Could not correlate user IP with proxy logs"). If highly confident, provide an empty list.
 </task>
 
 <rules>

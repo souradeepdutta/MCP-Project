@@ -55,6 +55,9 @@ def init_db():
                 summary TEXT,
                 technical_details TEXT,
                 recommended_actions TEXT,
+                confidence REAL,
+                escalation_status TEXT,
+                uncertainty_factors TEXT,
                 created_at TEXT,
                 FOREIGN KEY (email_id) REFERENCES Emails(email_id)
             )

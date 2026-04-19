@@ -118,7 +118,8 @@ def _handle_save_investigation_report(args: dict, role: str) -> list[types.TextC
     audit_logger.info(f"EXEC | Role: {role} | Tool: save_investigation_report | Args: email_id={args['email_id']}, verdict={args['verdict']}")
     result = phishing_mcp.save_investigation_report(
         args["email_id"], args["verdict"], args["severity"],
-        args["summary"], args["technical_details"], args["recommended_actions"]
+        args["summary"], args["technical_details"], args["recommended_actions"],
+        args["confidence_score"], args.get("uncertainty_factors", [])
     )
     return [types.TextContent(type="text", text=result)]
 
@@ -180,9 +181,15 @@ TOOL_REGISTRY: dict[str, dict] = {
                 "severity": {"type": "string"},
                 "summary": {"type": "string"},
                 "technical_details": {"type": "string"},
-                "recommended_actions": {"type": "string"}
+                "recommended_actions": {"type": "string"},
+                "confidence_score": {"type": "number", "description": "A float between 0.0 and 1.0 representing your confidence in the verdict."},
+                "uncertainty_factors": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "A list of strings explaining any blind spots or reasons for uncertainty. Empty if fully confident."
+                }
             },
-            "required": ["email_id", "verdict", "severity", "summary", "technical_details", "recommended_actions"]
+            "required": ["email_id", "verdict", "severity", "summary", "technical_details", "recommended_actions", "confidence_score", "uncertainty_factors"]
         },
         "handler": _handle_save_investigation_report,
     },

@@ -199,4 +199,12 @@ This section tracks the architectural improvements made to the platform as it ev
 * **Crash Recovery & Stale State Mitigation:** If the Orchestrator daemon is abruptly killed, any emails left in the `Processing` state are automatically recovered back to `Pending` upon the next startup.
 * **Enterprise Authentication Readiness:** The Token-based architecture was specifically built using standard HTTP Authorization headers, allowing an immediate, drop-in transition to Enterprise OAuth 2.0 (e.g., Auth0, Microsoft Entra ID) using PyJWT.
 
+### Phase 4: Codebase Audit & Enterprise AI Capabilities
+* **Centralized Configuration Management:** Refactored the architecture to use a single source of truth (`config.py`) for all paths, environment variables, and constants, eliminating hardcoded redundancy across the Gateway, Orchestrator, and Tools.
+* **Architectural Cleanup & De-duplication:** Stripped out legacy dead code (e.g., unused FastMCP decorators, redundant database initializations) and transformed monolithic, stateless classes into pure Python functions, significantly improving maintainability and readability.
+* **Agent Error Recovery (Anti-Orphaning):** Implemented robust timeout and exception handling within the Orchestrator's agent swarm. If an agent crashes or exceeds its timeout limit, the email is automatically reset from `Processing` to `Pending`, preventing orphaned investigations.
+* **Confidence Calibration Engine:** Upgraded the AI decision engine to grade its own confidence on a 0.0 to 1.0 scale and output a JSON list of explicit "Uncertainty Factors" (e.g., missing logs, zero-day indicators). 
+* **Automated Escalation Routing:** Based on the AI's confidence score, investigations are now dynamically routed: `Auto-Closed` (confidence > 0.85), `Flagged for Review` (0.60 to 0.85), or `Escalated to Human Analyst` (< 0.60).
+* **Executive SOC Dashboard Upgrade:** Updated the Streamlit UI to visualize the Agent's Confidence via progress bars, introduced colored Escalation Badges (including pulsating alerts for human escalation), added an "Auto-Closed Rate" automation ROI metric, and surfaced the AI's blind spots directly to the human analyst to accelerate manual review.
+
 ---

@@ -368,7 +368,7 @@ def check_threat_intel(indicator: str, indicator_type: str) -> str:
 # TOOL 5: Save Investigation Report
 # ─────────────────────────────────────────────────────────────
 
-def save_investigation_report(email_id: int, verdict: str, severity: str, summary: str, technical_details: str, recommended_actions: str) -> str:
+def save_investigation_report(email_id: int, verdict: str, severity: str, summary: str, technical_details: str, recommended_actions: str, confidence_score: float, uncertainty_factors: list) -> str:
     """
     Saves the final investigation verdict and summary into the local case management database.
     Run this ONLY as the final step of an investigation after all evidence is gathered.
@@ -376,6 +376,16 @@ def save_investigation_report(email_id: int, verdict: str, severity: str, summar
     """
     timestamp = datetime.datetime.now().isoformat()
     short_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+
+    # Routing logic based on confidence
+    if confidence_score > 0.85:
+        escalation_status = "Auto-Closed"
+    elif confidence_score >= 0.60:
+        escalation_status = "Flagged for Review"
+    else:
+        escalation_status = "Escalated to Human"
+
+    factors_json = json.dumps(uncertainty_factors)
 
     try:
         with sqlite3.connect(DB_PATH) as conn:
@@ -393,14 +403,14 @@ def save_investigation_report(email_id: int, verdict: str, severity: str, summar
             case_id = f"CAS-{clean_msg_id}-{short_time}"
 
             conn.execute(
-                "INSERT INTO Investigations (case_id, email_id, verdict, severity, summary, technical_details, recommended_actions, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (case_id, email_id, verdict, severity, summary, technical_details, recommended_actions, timestamp)
+                "INSERT INTO Investigations (case_id, email_id, verdict, severity, summary, technical_details, recommended_actions, confidence, escalation_status, uncertainty_factors, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (case_id, email_id, verdict, severity, summary, technical_details, recommended_actions, confidence_score, escalation_status, factors_json, timestamp)
             )
             conn.execute(
                 "UPDATE Emails SET status = 'Investigated' WHERE email_id = ?",
                 (email_id,)
             )
-        return f"SUCCESS: Investigation formally saved. Case ID generated: {case_id}"
+        return f"SUCCESS: Investigation formally saved. Case ID generated: {case_id} | Escalation Status: {escalation_status}"
     except Exception as e:
         return f"Error saving case to database: {str(e)}"
 
