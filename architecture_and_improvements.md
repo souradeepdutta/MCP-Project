@@ -45,8 +45,12 @@ graph TD
         C <-->|OpenAI SDK| D[LLM: Gemini / Llama3]
     end
     
+    subgraph Gateway Layer
+        C <-->|SSE + Bearer Token| GW[MCP Security Gateway]
+    end
+    
     subgraph Execution Layer
-        C <-->|MCP Protocol| E[MCP Server]
+        GW <-->|Local Proc| E[MCP Tools Server]
         E -->|API| F[VirusTotal]
         E -->|API| G[Splunk SIEM / EDR]
     end
@@ -63,19 +67,22 @@ graph TD
     classDef green fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px;
     classDef orange fill:#fff3e0,stroke:#e65100,stroke-width:2px;
     classDef purple fill:#f3e5f5,stroke:#6a1b9a,stroke-width:2px;
+    classDef red fill:#ffebee,stroke:#c62828,stroke-width:2px;
     
     class C,E blue;
     class D purple;
+    class GW red;
     class F,G orange;
     class I,J green;
 ```
 
 ### Component Breakdown
 1. **Ingestion Layer (Mailpit):** Captures raw SMTP traffic and exposes it via REST API. Simulates an enterprise Exchange/Google Workspace server.
-2. **Autonomous Orchestrator (`custom_mcp_client.py`):** A persistent Python daemon. It polls Mailpit every 5 seconds for new emails, registers them in the database queue, and spins up a **Multi-Agent Swarm** (multiple isolated LLM agents running concurrently via `asyncio`) to investigate them in parallel.
-3. **Execution Server (`phishing_mcp.py`):** A local Model Context Protocol (MCP) server containing specific Python tools (`get_email_artifacts`, `check_threat_intel`, `query_splunk`). 
-4. **Memory Layer (`soc_db.sqlite`):** A normalized relational SQLite database tracking the lifecycle of Emails, Investigations, Employees, and Corporate Assets.
-5. **Presentation Layer (`app.py`):** A real-time Streamlit dashboard providing human SOC analysts with a read-only, high-level view of automated investigations.
+2. **Autonomous Orchestrator (`custom_mcp_client.py`):** A persistent Python daemon. It polls Mailpit every 10 seconds for new emails, registers them in the database queue, and spins up a **Multi-Agent Swarm** to investigate them in parallel.
+3. **Security Gateway (`mcp_gateway.py`):** A Starlette-based API server bridging the Orchestrator and tools via Server-Sent Events (SSE). It enforces Role-Based Access Control (RBAC), audits all actions, and filters malicious inputs.
+4. **Execution Server (`phishing_mcp.py`):** The isolated Python tools containing the specific logic (`get_email_artifacts`, `check_threat_intel`, `query_splunk`). 
+5. **Memory Layer (`soc_db.sqlite`):** A normalized relational SQLite database tracking the lifecycle of Emails, Investigations, Employees, and Corporate Assets.
+6. **Presentation Layer (`app.py`):** A real-time Streamlit dashboard providing human SOC analysts with a read-only, high-level view of automated investigations.
 
 ---
 
@@ -181,5 +188,15 @@ This section tracks the architectural improvements made to the platform as it ev
 * **State Locking (Race Condition Prevention):** When the Orchestrator picks up emails, it instantly updates their database status to `Processing`. This guarantees two agents never accidentally investigate the same email.
 * **Agent Isolation & Identity Logging:** Each agent in the swarm is given a distinct identity (e.g., `[Agent-1]`, `[Agent-2]`). Console logs are prefixed so SOC engineers can track exactly what each sub-agent is doing asynchronously.
 * **Rate Limit Survival (Backoff Logic):** Because high-concurrency LLM swarms easily hit API quotas (e.g., Gemini's 15 RPM limit), a fault-tolerant `try/except` loop was implemented. If an agent hits a `429 Quota Exceeded` error, it automatically pauses, sleeps for 20 seconds, and gracefully resumes the investigation without crashing.
+
+### Phase 3: Secure API Gateway, RBAC & Swarm Stability (Current)
+* **Network Segregation (SSE Gateway):** Migrated from `stdio` (local subprocess) to a Starlette-based **Server-Sent Events (SSE)** architecture (`mcp_gateway.py`). The Orchestrator now connects to the tools over HTTP. This decouples the vulnerable LLM environment from the secure internal corporate network containing Splunk/EDR.
+* **Role-Based Access Control (RBAC):** The Gateway acts as an Identity Provider using a Bearer token system. Agents connecting with an `L1_Triage` token are restricted to 2 passive tools (artifacts, threat intel), while `L3_Responder` tokens receive all 5 active tools.
+* **Immutable Audit Logging:** Every tool call, connection, and security block is routed through Python's `logging` module to a persistent `audit.log` file. The Orchestrator cannot bypass this, creating a forensic, court-admissible trail of all AI actions.
+* **OpSec Domain Filtering:** Implemented hardcoded interceptors in the Gateway. If an LLM attempts to send internal company domains (e.g., `yourcompany.com`) to external APIs like VirusTotal, the Gateway drops the request entirely and logs a `WARNING - BLOCKED` event.
+* **Regex Input Validation:** To prevent Prompt/SPL Injection, tools like `query_endpoint_activity` now validate their arguments against strict regex patterns (e.g., enforcing valid IPv4 addresses) before passing them to the SIEM.
+* **Jittered Staggered Execution:** To survive strict 429 Rate Limits while maintaining horizontal scalability, agents now start with a staggered delay (`AGENT_START_DELAY_SECONDS`), and rate-limit backoffs utilize randomized Jitter. This desynchronizes the swarm, preventing them from simultaneously slamming the LLM API when they wake up.
+* **Crash Recovery & Stale State Mitigation:** If the Orchestrator daemon is abruptly killed, any emails left in the `Processing` state are automatically recovered back to `Pending` upon the next startup.
+* **Enterprise Authentication Readiness:** The Token-based architecture was specifically built using standard HTTP Authorization headers, allowing an immediate, drop-in transition to Enterprise OAuth 2.0 (e.g., Auth0, Microsoft Entra ID) using PyJWT.
 
 ---

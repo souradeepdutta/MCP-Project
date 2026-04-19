@@ -6,3 +6,8 @@ streamlit
 pandas
 altair
 openai
+fastapi
+uvicorn
+sse_starlette
+
+

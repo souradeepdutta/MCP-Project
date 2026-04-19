@@ -1,0 +1,19 @@
+{
+  "tokens": {
+    "token-123": "L1_Triage",
+    "token-456": "L3_Responder"
+  },
+  "roles": {
+    "L1_Triage": [
+      "get_email_artifacts",
+      "check_threat_intel"
+    ],
+    "L3_Responder": [
+      "get_email_artifacts",
+      "check_threat_intel",
+      "query_splunk_for_clicks",
+      "query_endpoint_activity",
+      "save_investigation_report"
+    ]
+  }
+}

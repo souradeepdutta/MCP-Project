@@ -1,0 +1,50 @@
+2026-04-19 22:23:52,630 [AUDIT] INFO - CONNECT | Token: token-456 | Role: L3_Responder
+2026-04-19 22:23:57,888 [AUDIT] INFO - CONNECT | Token: token-456 | Role: L3_Responder
+2026-04-19 22:23:59,204 [AUDIT] INFO - EXEC | Role: L3_Responder | Tool: get_email_artifacts | Args: h9Xaykw6kfRD2JHhp243Cn
+2026-04-19 22:24:01,687 [AUDIT] INFO - EXEC | Role: L3_Responder | Tool: get_email_artifacts | Args: eSYGs8pP7fZfJjZPHCnwFq
+2026-04-19 22:24:02,921 [AUDIT] INFO - CONNECT | Token: token-456 | Role: L3_Responder
+2026-04-19 22:24:09,665 [AUDIT] INFO - EXEC | Role: L3_Responder | Tool: get_email_artifacts | Args: 3ppnAsXhkJ38oCQ57PnHKj
+2026-04-19 22:24:10,117 [AUDIT] INFO - EXEC | Role: L3_Responder | Tool: check_threat_intel | Args: yourcompany.com
+2026-04-19 22:24:10,117 [AUDIT] WARNING - BLOCKED | Role: L3_Responder | Tool: check_threat_intel | Reason: Internal Domain OpSec
+2026-04-19 22:24:11,005 [AUDIT] INFO - EXEC | Role: L3_Responder | Tool: check_threat_intel | Args: vendor-portal-update.com
+2026-04-19 22:24:15,012 [AUDIT] INFO - EXEC | Role: L3_Responder | Tool: check_threat_intel | Args: https://helpdesk.yourcompany.com/ticket/2847
+2026-04-19 22:24:15,012 [AUDIT] WARNING - BLOCKED | Role: L3_Responder | Tool: check_threat_intel | Reason: Internal Domain OpSec
+2026-04-19 22:24:15,466 [AUDIT] INFO - EXEC | Role: L3_Responder | Tool: check_threat_intel | Args: http://vendor-portal-update.com/patch
+2026-04-19 22:24:18,665 [AUDIT] INFO - EXEC | Role: L3_Responder | Tool: check_threat_intel | Args: secure-dropbox-share.com
+2026-04-19 22:24:19,486 [AUDIT] INFO - EXEC | Role: L3_Responder | Tool: check_threat_intel | Args: security_patch_v2.xlsm
+2026-04-19 22:24:25,061 [AUDIT] INFO - EXEC | Role: L3_Responder | Tool: check_threat_intel | Args: http://secure-dropbox-share.com/doc/shared-file
+2026-04-19 22:24:25,891 [AUDIT] INFO - EXEC | Role: L3_Responder | Tool: query_splunk_for_clicks | Args: http://vendor-portal-update.com/patch
+2026-04-19 22:24:33,414 [AUDIT] INFO - EXEC | Role: L3_Responder | Tool: query_splunk_for_clicks | Args: http://secure-dropbox-share.com/doc/shared-file
+2026-04-19 22:24:36,026 [AUDIT] INFO - EXEC | Role: L3_Responder | Tool: query_endpoint_activity | Args: 192.168.1.50
+2026-04-19 22:24:43,758 [AUDIT] INFO - EXEC | Role: L3_Responder | Tool: query_endpoint_activity | Args: 192.168.1.58
+2026-04-19 22:24:46,335 [AUDIT] INFO - EXEC | Role: L3_Responder | Tool: save_investigation_report | Args: email_id=2, verdict=SAFE
+2026-04-19 22:24:48,854 [AUDIT] INFO - EXEC | Role: L3_Responder | Tool: query_endpoint_activity | Args: 192.168.1.57
+2026-04-19 22:24:58,047 [AUDIT] INFO - EXEC | Role: L3_Responder | Tool: query_endpoint_activity | Args: 192.168.1.59
+2026-04-19 22:25:17,030 [AUDIT] INFO - EXEC | Role: L3_Responder | Tool: query_endpoint_activity | Args: 192.168.1.55
+2026-04-19 22:25:45,817 [AUDIT] INFO - EXEC | Role: L3_Responder | Tool: save_investigation_report | Args: email_id=1, verdict=CONFIRMED PHISHING — ACTIVE COMPROMISE
+2026-04-19 22:25:54,346 [AUDIT] INFO - EXEC | Role: L3_Responder | Tool: save_investigation_report | Args: email_id=3, verdict=CONFIRMED PHISHING
+2026-04-19 22:26:07,383 [AUDIT] INFO - CONNECT | Token: token-456 | Role: L3_Responder
+2026-04-19 22:26:12,619 [AUDIT] INFO - CONNECT | Token: token-456 | Role: L3_Responder
+2026-04-19 22:26:14,104 [AUDIT] INFO - EXEC | Role: L3_Responder | Tool: get_email_artifacts | Args: BSd5k5wkueDyZAGAPSnGfE
+2026-04-19 22:26:17,644 [AUDIT] INFO - CONNECT | Token: token-456 | Role: L3_Responder
+2026-04-19 22:30:22,013 [AUDIT] INFO - CONNECT | Token: token-123 | Role: L1_Triage
+2026-04-19 22:30:27,279 [AUDIT] INFO - CONNECT | Token: token-123 | Role: L1_Triage
+2026-04-19 22:30:28,872 [AUDIT] INFO - EXEC | Role: L1_Triage | Tool: get_email_artifacts | Args: DAdtuW7c6BHSRjsgv4LhCY
+2026-04-19 22:30:32,282 [AUDIT] INFO - CONNECT | Token: token-123 | Role: L1_Triage
+2026-04-19 22:30:33,390 [AUDIT] INFO - EXEC | Role: L1_Triage | Tool: get_email_artifacts | Args: NJyfHKqPhTZvQcc7smtx4t
+2026-04-19 22:30:39,119 [AUDIT] INFO - EXEC | Role: L1_Triage | Tool: check_threat_intel | Args: vendor-portal-update.com
+2026-04-19 22:30:39,955 [AUDIT] INFO - EXEC | Role: L1_Triage | Tool: get_email_artifacts | Args: eBZKXjYuNSogo8fffqhfJL
+2026-04-19 22:30:42,641 [AUDIT] INFO - EXEC | Role: L1_Triage | Tool: check_threat_intel | Args: yourcompany.com
+2026-04-19 22:30:42,641 [AUDIT] WARNING - BLOCKED | Role: L1_Triage | Tool: check_threat_intel | Reason: Internal Domain OpSec
+2026-04-19 22:30:43,256 [AUDIT] INFO - EXEC | Role: L1_Triage | Tool: check_threat_intel | Args: http://vendor-portal-update.com/patch
+2026-04-19 22:30:48,877 [AUDIT] INFO - EXEC | Role: L1_Triage | Tool: check_threat_intel | Args: https://helpdesk.yourcompany.com/ticket/2847
+2026-04-19 22:30:48,877 [AUDIT] WARNING - BLOCKED | Role: L1_Triage | Tool: check_threat_intel | Reason: Internal Domain OpSec
+2026-04-19 22:30:48,972 [AUDIT] INFO - EXEC | Role: L1_Triage | Tool: check_threat_intel | Args: security_patch_v2.xlsm
+2026-04-19 22:30:49,421 [AUDIT] INFO - EXEC | Role: L1_Triage | Tool: check_threat_intel | Args: secure-dropbox-share.com
+2026-04-19 22:30:54,710 [AUDIT] WARNING - DENIED | Role: L1_Triage | Tool: query_splunk_for_clicks | Reason: Not authorized for role
+2026-04-19 22:30:54,931 [AUDIT] INFO - EXEC | Role: L1_Triage | Tool: check_threat_intel | Args: http://secure-dropbox-share.com/doc/shared-file
+2026-04-19 22:30:59,624 [AUDIT] INFO - EXEC | Role: L1_Triage | Tool: check_threat_intel | Args: https://placeholder.com/dropbox-logo.png
+2026-04-19 22:31:00,428 [AUDIT] WARNING - DENIED | Role: L1_Triage | Tool: query_splunk_for_clicks | Reason: Not authorized for role
+2026-04-19 22:31:03,902 [AUDIT] WARNING - DENIED | Role: L1_Triage | Tool: query_splunk_for_clicks | Reason: Not authorized for role
+2026-04-19 22:31:16,344 [AUDIT] WARNING - DENIED | Role: L1_Triage | Tool: query_splunk_for_clicks | Reason: Not authorized for role
+2026-04-19 22:31:19,760 [AUDIT] WARNING - DENIED | Role: L1_Triage | Tool: query_splunk_for_clicks | Reason: Not authorized for role

@@ -42,7 +42,7 @@ def classify_verdict(verdict: str) -> str:
         return "critical"
     elif any(kw in v for kw in ["SUSPICIOUS", "PHISHING", "MALICIOUS", "CLICKED"]):
         return "warning"
-    elif any(kw in v for kw in ["BENIGN", "CLEAN", "FALSE POSITIVE"]):
+    elif any(kw in v for kw in ["BENIGN", "CLEAN", "FALSE POSITIVE", "SAFE"]):
         return "safe"
     return "warning"
 
@@ -238,7 +238,7 @@ else:
             tooltip=['Severity', 'Count']
         ).properties(height=250, background='transparent')
         
-        st.altair_chart(pie_chart, use_container_width=True)
+        st.altair_chart(pie_chart, width='stretch')
 
     with chart_col2:
         st.markdown('<div class="section-header">Investigation Timeline</div>', unsafe_allow_html=True)
@@ -257,7 +257,7 @@ else:
                 tooltip=['date:T', 'severity:N', 'count:Q']
             ).properties(height=250, background='transparent')
             
-            st.altair_chart(bar_chart, use_container_width=True)
+            st.altair_chart(bar_chart, width='stretch')
         except Exception:
             st.info("Not enough temporal data for timeline.")
 
