@@ -183,8 +183,3 @@ This section tracks the architectural improvements made to the platform as it ev
 * **Rate Limit Survival (Backoff Logic):** Because high-concurrency LLM swarms easily hit API quotas (e.g., Gemini's 15 RPM limit), a fault-tolerant `try/except` loop was implemented. If an agent hits a `429 Quota Exceeded` error, it automatically pauses, sleeps for 20 seconds, and gracefully resumes the investigation without crashing.
 
 ---
-
-## 8. Next Steps (Phase 3 & Beyond)
-With the foundational pipeline and Swarm architecture solidified, the platform is ready to support:
-1. **Webhook Integration (Enterprise Ingestion):** Replacing the local 5-second polling mechanism with an event-driven Webhook listener (e.g., Microsoft Graph API Subscriptions) to handle production-scale email volume efficiently.
-2. **Proactive Campaign Detection:** Querying the database to identify coordinated attacks by correlating IOCs across multiple individual phishing investigations.

@@ -1,0 +1,23 @@
+Viewed generate_sample_data.py:1-215
+
+Here are the expected, correct verdicts for the 5 test campaigns we generated based on the underlying proxy and EDR logs injected into Splunk:
+
+**1. Microsoft Invoice Phishing** (`<MSG-1049...>`)
+*   **Verdict:** `CONFIRMED PHISHING — ACTIVE COMPROMISE`
+*   **Why:** User `jsmith` clicked the link, and EDR logs show `payload.exe` was successfully downloaded, executed, added to scheduled tasks for persistence, and started establishing C2 beaconing.
+
+**2. HR Benefits Portal** (`<MSG-2077...>`)
+*   **Verdict:** `CONFIRMED PHISHING — ACTIVE COMPROMISE`
+*   **Why:** User `cjones` submitted credentials, and EDR caught post-exploitation activity including Active Directory enumeration (`net user /domain`) and lateral movement attempts via `PsExec`.
+
+**3. Fake Dropbox File Share** (`<MSG-3102...>`)
+*   **Verdict:** `CONFIRMED PHISHING` *(Notice it is NOT 'Active Compromise')*
+*   **Why:** The email contains malicious links, but the proxy logs show that when users clicked, the connection was `BLOCKED`. There are zero EDR logs of execution.
+
+**4. Internal Helpdesk Notification** (`<MSG-4200...>`)
+*   **Verdict:** `BENIGN`
+*   **Why:** Threat intel comes back completely clean (score 0/90), the URLs are internal, and EDR shows normal `outlook.exe` and `Teams.exe` activity with no malice. It's a pure false positive.
+
+**5. Vendor Supply Chain Attack** (`<MSG-5310...>`)
+*   **Verdict:** `CONFIRMED PHISHING — ACTIVE COMPROMISE`
+*   **Why:** Users clicked, downloaded the `.xlsm` file, and EDR logs show the macro triggering `mshta.exe` and `certutil.exe` to sideload a malicious DLL.
